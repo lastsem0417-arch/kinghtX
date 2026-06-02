@@ -72,12 +72,12 @@ export default function LoginForm() {
               >
                 Password
               </label>
-              <button
-                type="button"
+              <Link
+                href="/forgot-password"
                 className="text-xs text-[#81b64c] hover:text-[#90c957] transition-colors"
               >
                 Forgot password?
-              </button>
+              </Link>
             </div>
             <input
               id="login-password"

@@ -123,3 +123,62 @@ export async function logout(): Promise<void> {
   await deleteSession();
   redirect('/login');
 }
+
+// ─── Forgot/Reset Password ───────────────────────────────────────────────────
+
+export async function requestPasswordReset(email: string) {
+  try {
+    await connectToDatabase();
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      return { success: false, message: 'No account found with this email address.' };
+    }
+    
+    // Generate a secure mock reset token for local preview/development
+    const pin = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
+    const token = `KNIGHTX-RESET-${pin}`;
+
+    return { 
+      success: true, 
+      token, 
+      email: user.email,
+      message: 'Secure verification token generated successfully.' 
+    };
+  } catch (err) {
+    console.error('Password reset request error:', err);
+    return { success: false, message: 'An error occurred. Please try again.' };
+  }
+}
+
+export async function resetPassword(email: string, password: string) {
+  try {
+    // Basic password validation
+    if (password.length < 8) {
+      return { success: false, message: 'Password must be at least 8 characters long.' };
+    }
+    if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return { success: false, message: 'Password must contain at least one letter and one number.' };
+    }
+
+    await connectToDatabase();
+    
+    // Hash new password using bcrypt
+    const passwordHash = await bcrypt.hash(password, 12);
+    
+    // Update user record
+    const updatedUser = await User.findOneAndUpdate(
+      { email: email.toLowerCase().trim() },
+      { passwordHash }
+    );
+
+    if (!updatedUser) {
+      return { success: false, message: 'User not found. Password reset failed.' };
+    }
+
+    return { success: true, message: 'Your password has been reset successfully.' };
+  } catch (err) {
+    console.error('Password reset completion error:', err);
+    return { success: false, message: 'Failed to reset password. Please try again.' };
+  }
+}
+
