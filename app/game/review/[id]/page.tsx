@@ -199,7 +199,11 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
     setProgress(0);
 
     const chess = new Chess();
-    chess.loadPgn(game.pgn);
+    try {
+      chess.loadPgn(game.pgn);
+    } catch (e) {
+      console.error("Error loading PGN in review page startAnalysis:", game.pgn, e);
+    }
     const historyList = chess.history({ verbose: true });
     const totalMovesCount = historyList.length;
 
@@ -210,12 +214,22 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
     }
 
     const positions: { fenBefore: string; fenAfter: string; san: string; color: "w" | "b" }[] = [];
-    const tempChess = new Chess();
+    const startingFen = chess.header().FEN || "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    const isCustomFen = startingFen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    const tempChess = new Chess(startingFen);
     
     for (let i = 0; i < totalMovesCount; i++) {
       const fenBefore = tempChess.fen();
       const move = historyList[i];
-      tempChess.move(move.san);
+      try {
+        tempChess.move({
+          from: move.from,
+          to: move.to,
+          promotion: move.promotion || undefined
+        });
+      } catch (e) {
+        console.error("Error applying move in review page:", move, e);
+      }
       const fenAfter = tempChess.fen();
       positions.push({
         fenBefore,
@@ -227,20 +241,59 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
 
     const worker = new Worker("/stockfish-worker.js");
     workerRef.current = worker;
-    worker.postMessage("uci");
-    worker.postMessage("isready");
+    
+    worker.onerror = (err) => {
+      console.error("Stockfish worker error in review page:", err);
+    };
+
+    // Wait for Stockfish to be ready
+    await new Promise<void>((resolveReady) => {
+      const handleInit = (e: MessageEvent) => {
+        if (e.data === "readyok") {
+          worker.removeEventListener("message", handleInit);
+          resolveReady();
+        }
+      };
+      worker.addEventListener("message", handleInit);
+      worker.postMessage("uci");
+      worker.postMessage("isready");
+    });
 
     const analyzed: AnalyzedMove[] = [];
     
     const evaluateFen = (fen: string): Promise<{ score: number; bestMove: string }> => {
+      try {
+        const temp = new Chess(fen);
+        if (temp.isGameOver()) {
+          let score = 0.0;
+          if (temp.isCheckmate()) {
+            const activeTurn = temp.turn();
+            score = activeTurn === "w" ? -10.0 : 10.0;
+          }
+          return Promise.resolve({ score, bestMove: "(none)" });
+        }
+      } catch (e) {
+        console.error("Error checking game over FEN:", e);
+      }
+
       return new Promise((resolve) => {
-        worker.postMessage(`position fen ${fen}`);
-        worker.postMessage("go depth 8");
+        let currentScore = 0.35;
+        let bestMove = "";
+        let resolved = false;
+
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            console.warn("[Review Engine] Timeout waiting for FEN:", fen, "Sending stop...");
+            worker.postMessage("stop");
+            resolved = true;
+            worker.removeEventListener("message", handleMsg);
+            resolve({ score: currentScore, bestMove: bestMove || "(none)" });
+          }
+        }, 5000); // 5 seconds safety timeout
 
         const handleMsg = (e: MessageEvent) => {
           const line = e.data;
-          let currentScore = 0.35;
-          let bestMove = "";
+          if (typeof line !== "string") return;
 
           if (line.startsWith("info") && line.includes("score")) {
             if (line.includes("score cp")) {
@@ -263,12 +316,20 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
           if (line.startsWith("bestmove")) {
             const parts = line.split(" ");
             bestMove = parts[1];
-            worker.removeEventListener("message", handleMsg);
-            resolve({ score: currentScore, bestMove });
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              worker.removeEventListener("message", handleMsg);
+              console.log(`[Review Engine] Resolved FEN: ${fen} -> Score: ${currentScore}, BestMove: ${bestMove}`);
+              resolve({ score: currentScore, bestMove });
+            }
           }
         };
 
         worker.addEventListener("message", handleMsg);
+        worker.postMessage("stop");
+        worker.postMessage(`position fen ${fen}`);
+        worker.postMessage("go depth 8");
       });
     };
 
@@ -284,7 +345,8 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
         beforeResult.score,
         afterResult.score,
         beforeResult.bestMove,
-        i
+        i,
+        isCustomFen
       );
 
       analyzed.push({
@@ -314,9 +376,14 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
     scoreBefore: number,
     scoreAfter: number,
     bestMoveUci: string,
-    moveIndex: number
+    moveIndex: number,
+    isCustomFen = false
   ): MoveClassification => {
-    if (moveIndex < 12) {
+    if (san.includes("#")) {
+      return "best";
+    }
+
+    if (!isCustomFen && moveIndex < 12) {
       return "book";
     }
 
@@ -394,7 +461,7 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
 
   const getCurrentFen = () => {
     if (currentMoveIndex === -1) {
-      return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+      return analyzedMoves[0]?.fenBefore || "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     }
     return analyzedMoves[currentMoveIndex]?.fenAfter || "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
   };

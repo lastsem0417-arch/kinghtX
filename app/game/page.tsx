@@ -190,9 +190,11 @@ export default function PlayPage() {
   function makeMove(move: any) {
 
     const gameCopy =
-      new Chess(game.fen());
+      new Chess();
 
     try {
+
+      gameCopy.loadPgn(game.pgn());
 
       const result =
         gameCopy.move(move);
@@ -351,9 +353,11 @@ export default function PlayPage() {
     history
       .slice(0, -1)
       .forEach((move) => {
-
-        newGame.move(move);
-
+        try {
+          newGame.move(move);
+        } catch (e) {
+          console.error("Error replaying move in game lobby handleUndo:", move, e);
+        }
       });
 
     setGame(newGame);

@@ -87,6 +87,8 @@ function BotGameContent() {
   // User Profile from DB
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedGameId, setSavedGameId] = useState<string | null>(null);
+  const [ratingDiff, setRatingDiff] = useState<number | null>(null);
+  const [newRatingVal, setNewRatingVal] = useState<number | null>(null);
 
   // Highlighting & Markings
   const [moveSquares, setMoveSquares] = useState<any>({});
@@ -255,6 +257,7 @@ function BotGameContent() {
       }
     }
 
+    workerRef.current.postMessage("stop");
     workerRef.current.postMessage(`position fen ${gameRef.current.fen()}`);
     workerRef.current.postMessage(`go depth ${bot.depth}`);
   };
@@ -300,8 +303,10 @@ function BotGameContent() {
         userColor: userColorStr
       });
 
-      if (res.data?.gameId) {
+      if (res.data?.success) {
         setSavedGameId(res.data.gameId);
+        setRatingDiff(res.data.ratingChange);
+        setNewRatingVal(res.data.newRating);
       }
     } catch (err) {
       console.error("Failed to save local bot match:", err);
@@ -309,8 +314,9 @@ function BotGameContent() {
   };
 
   const applyMove = (moveData: { from: string; to: string; promotion?: string }, isBot: boolean) => {
-    const gameCopy = new Chess(gameRef.current.fen());
+    const gameCopy = new Chess();
     try {
+      gameCopy.loadPgn(gameRef.current.pgn());
       const moveResult = gameCopy.move(moveData);
 
       if (moveResult) {
@@ -341,7 +347,7 @@ function BotGameContent() {
         return true;
       }
     } catch (err) {
-      console.error("Invalid move attempted:", err);
+      console.warn("Invalid move attempted:", moveData);
     }
     return false;
   };
@@ -413,7 +419,8 @@ function BotGameContent() {
   const handleResign = async () => {
     if (gameStatusRef.current !== "playing") return;
     
-    const endedGame = new Chess(gameRef.current.fen());
+    const endedGame = new Chess();
+    endedGame.loadPgn(gameRef.current.pgn());
     
     setGameStatus("lost");
     setStarsAwarded(0);
@@ -449,6 +456,8 @@ function BotGameContent() {
     setMoveSquares({});
     setHintSquare(null);
     setSavedGameId(null);
+    setRatingDiff(null);
+    setNewRatingVal(null);
 
     const greeting = bot.greetings[Math.floor(Math.random() * bot.greetings.length)];
     addChatMessage(bot.name, greeting);
@@ -580,9 +589,16 @@ function BotGameContent() {
       <div className="flex-grow min-w-0 flex flex-col min-h-0 py-4 px-4 bg-[#161412] justify-between">
         
         {/* Header toolbar */}
-        <div className="flex items-center justify-between shrink-0 mb-2">
-          <button onClick={() => router.push("/bots")} className="flex items-center gap-1.5 text-xs text-[#7a7a6e] hover:text-white transition-colors">
-            <ArrowLeft className="h-4 w-4" /> Exit to Bots
+        <div className="flex items-center justify-between shrink-0 mb-3 bg-[#111010]/60 border border-white/[0.04] px-4 py-2.5 rounded-2xl backdrop-blur-md">
+          <button 
+            onClick={() => router.push("/bots")} 
+            className="
+              flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] hover:bg-[#81b64c]/10 hover:border-[#81b64c]/30
+              text-[#a0a09a] hover:text-[#81b64c] font-black text-xs transition-all duration-200 shadow-sm active:scale-[0.98]
+            "
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0" />
+            <span>Exit to Computer Bots</span>
           </button>
           
           <div className="flex items-center gap-4">
@@ -605,6 +621,7 @@ function BotGameContent() {
             active={game.turn() !== playerColor && gameStatus === "playing"}
             side="top"
             avatar={bot.avatar}
+            username="bots"
             capturedPieces={playerColor === "w" ? stats.capturedWhite : stats.capturedBlack}
             capturedColor={playerColor === "w" ? "w" : "b"}
             materialAdvantage={playerColor === "w" ? stats.blackAdvantage : stats.whiteAdvantage}
@@ -680,6 +697,15 @@ function BotGameContent() {
               <span className="text-sm font-black capitalize text-white block">
                 {gameStatus === "won" ? "🏆 You Won!" : gameStatus === "lost" ? "❌ Bot Won!" : "🤝 Draw Match"}
               </span>
+
+              {ratingDiff !== null && (
+                <div className="text-xs font-mono font-bold text-center bg-[#161412] px-3 py-1.5 rounded-xl border border-white/[0.03]">
+                  Rapid: <span className="text-white">{newRatingVal}</span>{" "}
+                  <span className={ratingDiff >= 0 ? "text-green-400" : "text-red-400"}>
+                    ({ratingDiff >= 0 ? `+${ratingDiff}` : ratingDiff})
+                  </span>
+                </div>
+              )}
 
               {/* Star displays */}
               {starsAwarded !== null && (

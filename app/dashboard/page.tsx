@@ -106,11 +106,19 @@ export default async function DashboardPage() {
   const totalGames = user.stats.wins + user.stats.losses + user.stats.draws;
   const winRate = totalGames > 0 ? ((user.stats.wins / totalGames) * 100).toFixed(0) : '0';
 
+  const serializedUser = {
+    username: user.username,
+    avatar: user.avatar,
+    rating: {
+      rapid: user.rating?.rapid ?? 800,
+    },
+  };
+
   return (
     <main className="min-h-screen bg-[#161412] text-white flex flex-col md:flex-row">
       
       {/* ─── SIDE NAVIGATION BAR (Chess.com style) ─── */}
-      <LeftNavbar activeUser={user} />
+      <LeftNavbar activeUser={serializedUser} />
 
       {/* ─── CENTER ARENA (Quick actions, ratings, stats) ─── */}
       <div className="flex-grow max-w-7xl mx-auto w-full p-4 md:p-8 flex flex-col xl:flex-row gap-6 overflow-y-auto">
@@ -119,19 +127,19 @@ export default async function DashboardPage() {
         <div className="flex-grow space-y-6 min-w-0">
           
           {/* Welcome Card */}
-          <div className="bg-[#1a1917] border border-white/[0.08] rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden flex flex-col sm:flex-row justify-between items-center gap-6">
-            <div className="absolute right-0 bottom-0 text-[180px] leading-none text-white/[0.01] select-none pointer-events-none translate-y-12">
+          <div className="bg-gradient-to-br from-[#1a1917] via-[#1d1c1a] to-[#141312] border border-white/[0.08] rounded-3xl p-6 md:p-8 shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative overflow-hidden flex flex-col sm:flex-row justify-between items-center gap-6 group hover:border-[#81b64c]/20 transition-all duration-300">
+            <div className="absolute right-0 bottom-0 text-[180px] leading-none text-white/[0.01] select-none pointer-events-none translate-y-12 transition-transform duration-500 group-hover:scale-105 group-hover:text-white/[0.02]">
               ♞
             </div>
             
-            <div className="space-y-2 z-10 text-center sm:text-left">
-              <h1 className="text-2xl md:text-3xl font-black tracking-tight">
+            <div className="space-y-2.5 z-10 text-center sm:text-left">
+              <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white">
                 Welcome back,{' '}
-                <span className="text-[#81b64c] hover:underline">
+                <span className="text-[#81b64c] hover:text-[#90c957] transition-colors">
                   <Link href={`/profile/${user.username}`}>@{user.username}</Link>
                 </span>!
               </h1>
-              <p className="text-xs text-[#a0a09a] max-w-md">
+              <p className="text-xs text-[#a0a09a] max-w-md leading-relaxed">
                 Ranked matchmaking, AI chess coaches, computer bots, and tactical reviews are live. Start your next session below.
               </p>
             </div>
@@ -142,7 +150,7 @@ export default async function DashboardPage() {
                 className="
                   block px-8 py-4 rounded-xl bg-[#81b64c] hover:bg-[#90c957]
                   text-[#0f0e0c] font-black text-sm tracking-wide text-center
-                  shadow-[0_0_20px_rgba(129,182,76,0.25)] hover:shadow-[0_0_25px_rgba(129,182,76,0.4)]
+                  shadow-[0_0_20px_rgba(129,182,76,0.25)] hover:shadow-[0_0_25px_rgba(129,182,76,0.45)]
                   transition-all duration-200 active:scale-[0.98]
                 "
               >
@@ -151,11 +159,66 @@ export default async function DashboardPage() {
             </div>
           </div>
 
+          {/* Premium Subscription Banner (Pay Now) */}
+          <div className="bg-gradient-to-br from-[#1a1917] via-[#21201d] to-[#141b10] border-2 border-[#81b64c]/20 rounded-3xl p-6 md:p-8 shadow-[0_15px_35px_rgba(0,0,0,0.6)] relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6 transition-all duration-300 hover:border-[#81b64c]/40">
+            <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-[#81b64c]/5 rounded-full blur-[80px] pointer-events-none translate-x-20 -translate-y-20" />
+            <div className="absolute bottom-0 left-0 w-[200px] h-[200px] bg-amber-500/5 rounded-full blur-[60px] pointer-events-none -translate-x-10 translate-y-10" />
+
+            <div className="space-y-4 z-10 w-full md:max-w-xl">
+              <div className="flex items-center gap-2">
+                <span className="bg-[#81b64c]/10 border border-[#81b64c]/30 text-[#81b64c] text-[10px] font-black tracking-wider uppercase px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-[0_0_12px_rgba(129,182,76,0.15)]">
+                  <Sparkles className="h-3 w-3 fill-current" />
+                  KnightX Premium
+                </span>
+                <span className="bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black tracking-wider uppercase px-2.5 py-1 rounded-full">
+                  👑 Lifetime Access
+                </span>
+              </div>
+              
+              <div className="space-y-1.5">
+                <h2 className="text-xl md:text-2xl font-black text-white leading-tight">
+                  Unlock the Ultimate Chess Toolkit
+                </h2>
+                <p className="text-xs text-[#a0a09a] leading-relaxed">
+                  Go premium today to experience unlimited features, custom audio training, and grandmaster-level analytics.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                {[
+                  { title: "🗣️ Voice Coaching", desc: "5 expert tutors explaining moves" },
+                  { title: "⚡ Deep Review", desc: "Detailed move classification graphs" },
+                  { title: "🤖 40+ Custom Bots", desc: "Novice to Grandmaster computers" }
+                ].map((feat, idx) => (
+                  <div key={idx} className="bg-black/30 border border-white/[0.04] p-3 rounded-xl">
+                    <span className="text-[11px] font-black text-white block mb-0.5">{feat.title}</span>
+                    <span className="text-[10px] text-[#7a7a6e] font-semibold block">{feat.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="z-10 w-full md:w-auto shrink-0 flex flex-col items-center gap-2">
+              <Link
+                href="/register"
+                className="
+                  w-full md:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-amber-500 via-emerald-600 to-[#81b64c] hover:from-amber-600 hover:via-emerald-700 hover:to-[#90c957]
+                  text-[#0f0e0c] font-black text-sm tracking-wide text-center
+                  shadow-[0_0_20px_rgba(245,158,11,0.25)] hover:shadow-[0_0_25px_rgba(129,182,76,0.5)]
+                  transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap
+                "
+              >
+                💎 Pay Now & Upgrade
+              </Link>
+              <span className="text-[10px] text-[#7a7a6e] font-bold tracking-wide">Secure Checkout via KnightX</span>
+            </div>
+          </div>
+
           {/* Quick Play options */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Link 
               href="/puzzles"
-              className="bg-[#1a1917] border border-white/[0.08] hover:border-[#81b64c]/30 hover:bg-[#272522]/30 p-5 rounded-2xl flex items-center justify-between transition-all group shadow-md"
+              className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] hover:border-[#81b64c]/40 hover:bg-[#272522]/40 p-5 rounded-2xl flex items-center justify-between transition-all duration-300 group shadow-md hover:-translate-y-0.5"
             >
               <div className="space-y-1">
                 <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Puzzles</span>
@@ -164,10 +227,10 @@ export default async function DashboardPage() {
               </div>
               <span className="text-3xl p-2.5 bg-[#111010] rounded-xl border border-white/[0.05] group-hover:bg-[#81b64c]/10 transition-all">🧩</span>
             </Link>
-
+ 
             <Link 
               href="/bots"
-              className="bg-[#1a1917] border border-white/[0.08] hover:border-[#81b64c]/30 hover:bg-[#272522]/30 p-5 rounded-2xl flex items-center justify-between transition-all group shadow-md"
+              className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] hover:border-[#81b64c]/40 hover:bg-[#272522]/40 p-5 rounded-2xl flex items-center justify-between transition-all duration-300 group shadow-md hover:-translate-y-0.5"
             >
               <div className="space-y-1">
                 <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Computer Bots</span>
@@ -176,10 +239,10 @@ export default async function DashboardPage() {
               </div>
               <span className="text-3xl p-2.5 bg-[#111010] rounded-xl border border-white/[0.05] group-hover:bg-[#81b64c]/10 transition-all">🤖</span>
             </Link>
-
+ 
             <Link 
               href="/coaches"
-              className="bg-[#1a1917] border border-white/[0.08] hover:border-[#81b64c]/30 hover:bg-[#272522]/30 p-5 rounded-2xl flex items-center justify-between transition-all group shadow-md"
+              className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] hover:border-[#81b64c]/40 hover:bg-[#272522]/40 p-5 rounded-2xl flex items-center justify-between transition-all duration-300 group shadow-md hover:-translate-y-0.5"
             >
               <div className="space-y-1">
                 <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">AI Training</span>
@@ -188,10 +251,10 @@ export default async function DashboardPage() {
               </div>
               <span className="text-3xl p-2.5 bg-[#111010] rounded-xl border border-white/[0.05] group-hover:bg-[#81b64c]/10 transition-all">🎓</span>
             </Link>
-
+ 
             <Link 
               href="/analysis"
-              className="bg-[#1a1917] border border-white/[0.08] hover:border-[#81b64c]/30 hover:bg-[#272522]/30 p-5 rounded-2xl flex items-center justify-between transition-all group shadow-md"
+              className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] hover:border-[#81b64c]/40 hover:bg-[#272522]/40 p-5 rounded-2xl flex items-center justify-between transition-all duration-300 group shadow-md hover:-translate-y-0.5"
             >
               <div className="space-y-1">
                 <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Review Board</span>
@@ -203,7 +266,7 @@ export default async function DashboardPage() {
           </div>
 
           {/* Recent Games log */}
-          <div className="bg-[#1a1917] border border-white/[0.08] rounded-3xl p-6 shadow-lg space-y-4">
+          <div className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] rounded-3xl p-6 shadow-xl space-y-4 hover:border-white/[0.12] transition-colors duration-300">
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
               <div className="flex items-center gap-2">
                 <Gamepad2 className="h-5 w-5 text-[#81b64c]" />
@@ -306,7 +369,7 @@ export default async function DashboardPage() {
         <div className="w-full xl:w-[320px] xl:min-w-[320px] space-y-6 shrink-0">
           
           {/* Ratings grid */}
-          <div className="bg-[#1a1917] border border-white/[0.08] rounded-3xl p-5 shadow-lg space-y-3">
+          <div className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] rounded-3xl p-5 shadow-xl space-y-3 hover:border-white/[0.12] transition-colors duration-300">
             <span className="text-[10px] text-[#7a7a6e] font-bold uppercase tracking-wider block border-b border-white/[0.04] pb-2">Ratings Overview</span>
             <div className="grid grid-cols-2 gap-3">
               {[
@@ -327,7 +390,7 @@ export default async function DashboardPage() {
           </div>
 
           {/* Performance stats */}
-          <div className="bg-[#1a1917] border border-white/[0.08] rounded-3xl p-5 shadow-lg space-y-4">
+          <div className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] rounded-3xl p-5 shadow-xl space-y-4 hover:border-white/[0.12] transition-colors duration-300">
             <div className="flex items-center gap-2 border-b border-white/[0.04] pb-2">
               <Activity className="h-4 w-4 text-[#81b64c]" />
               <span className="text-[10px] text-[#7a7a6e] font-bold uppercase tracking-wider">Performance Overview</span>
@@ -363,7 +426,7 @@ export default async function DashboardPage() {
           </div>
 
           {/* Social / Friends */}
-          <div className="bg-[#1a1917] border border-white/[0.08] rounded-3xl p-5 shadow-xl h-[400px] overflow-hidden">
+          <div className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] rounded-3xl p-5 shadow-xl h-[400px] overflow-hidden hover:border-white/[0.12] transition-colors duration-300">
             <SocialPanel friends={friendsData} friendRequests={requestsData} />
           </div>
 

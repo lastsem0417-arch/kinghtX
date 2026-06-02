@@ -6,7 +6,7 @@ import { Chess } from "chess.js";
 import axios from "axios";
 import BoardSection from "@/components/chess/BoardSection";
 import LeftNavbar from "@/components/chess/LeftNavbar";
-import Sidebar from "@/components/chess/Sidebar";
+import MoveHistory from "@/components/chess/MoveHistory";
 import GameControls from "@/components/chess/GameControls";
 import { 
   Play, 
@@ -15,8 +15,26 @@ import {
   ArrowLeft, 
   TrendingUp, 
   Cpu, 
-  Gauge 
+  Gauge,
+  Sparkles,
+  BarChart2,
+  RefreshCw,
+  GraduationCap
 } from "lucide-react";
+import { AreaChart, Area, YAxis, ReferenceLine, ResponsiveContainer, Tooltip } from "recharts";
+
+type MoveClassification = "brilliant" | "great" | "best" | "excellent" | "good" | "book" | "inaccuracy" | "mistake" | "blunder";
+
+interface AnalyzedMove {
+  san: string;
+  color: "w" | "b";
+  fenBefore: string;
+  fenAfter: string;
+  scoreBefore: number;
+  scoreAfter: number;
+  bestMove?: string;
+  classification: MoveClassification;
+}
 
 export default function AnalysisPage() {
   const router = useRouter();
@@ -34,6 +52,22 @@ export default function AnalysisPage() {
   const [depth, setDepth] = useState<number>(0);
   const [pgnInput, setPgnInput] = useState("");
   const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // Chess.com Parity States
+  const [activeTab, setActiveTab] = useState<"analysis" | "review" | "pgn">("analysis");
+  const [evalHistory, setEvalHistory] = useState<number[]>([0.35]);
+  const [analyzedMoves, setAnalyzedMoves] = useState<AnalyzedMove[]>([]);
+  const [whiteAccuracy, setWhiteAccuracy] = useState<number | null>(null);
+  const [blackAccuracy, setBlackAccuracy] = useState<number | null>(null);
+  const [isReviewRunning, setIsReviewRunning] = useState(false);
+  const [reviewProgress, setReviewProgress] = useState(0);
+  const [counts, setCounts] = useState<{
+    white: Record<MoveClassification, number>;
+    black: Record<MoveClassification, number>;
+  }>({
+    white: { brilliant: 0, great: 0, best: 0, excellent: 0, good: 0, book: 0, inaccuracy: 0, mistake: 0, blunder: 0 },
+    black: { brilliant: 0, great: 0, best: 0, excellent: 0, good: 0, book: 0, inaccuracy: 0, mistake: 0, blunder: 0 }
+  });
 
   const workerRef = useRef<Worker | null>(null);
 
@@ -93,6 +127,13 @@ export default function AnalysisPage() {
               // Map evaluation to visual percentage (Sigmoid Arctan map)
               const mappedPercent = 50 + (Math.atan(scoreVal / 2) * (100 / Math.PI));
               setEvalPercentage(mappedPercent);
+
+              // Update evaluation history
+              setEvalHistory((prev) => {
+                const next = [...prev];
+                next[history.length] = scoreVal;
+                return next;
+              });
             }
           } else if (line.includes("score mate")) {
             const mateMatch = line.match(/score mate (-?\d+)/);
@@ -101,6 +142,13 @@ export default function AnalysisPage() {
               const sign = (game.turn() === "b" ? -mate : mate) > 0 ? "+" : "-";
               setEvalScore(`M${sign}${Math.abs(mate)}`);
               setEvalPercentage(mate > 0 ? 100 : 0);
+
+              const scoreVal = mate > 0 ? 10.0 : -10.0;
+              setEvalHistory((prev) => {
+                const next = [...prev];
+                next[history.length] = scoreVal;
+                return next;
+              });
             }
           }
 
@@ -195,17 +243,26 @@ export default function AnalysisPage() {
     const newHistory = history.slice(0, -1);
     
     newHistory.forEach((move) => {
-      newGame.move(move);
+      try {
+        newGame.move(move);
+      } catch (e) {
+        console.error("Error replaying move in analysis handleUndo:", move, e);
+      }
     });
 
     setGame(newGame);
     setHistory(newHistory);
+    setEvalHistory((prev) => prev.slice(0, newHistory.length + 1));
   };
 
   const handleReset = () => {
     setGame(new Chess());
     setHistory([]);
     setSuggestedArrow([]);
+    setEvalHistory([0.35]);
+    setAnalyzedMoves([]);
+    setWhiteAccuracy(null);
+    setBlackAccuracy(null);
   };
 
   const handleFlip = () => {
@@ -233,12 +290,233 @@ export default function AnalysisPage() {
       setHistory(sanHistory);
       setPgnInput("");
       setSuggestedArrow([]);
+      setEvalHistory(new Array(sanHistory.length + 1).fill(0.35));
+      setAnalyzedMoves([]);
+      setWhiteAccuracy(null);
+      setBlackAccuracy(null);
       
       moveSound.current?.play().catch(() => {});
     } catch (err: any) {
       console.error("Invalid PGN imported:", err);
       alert("Oops! Invalid PGN format. Make sure you copy a standard PGN game log (e.g., 1. e4 e5 ...).");
     }
+  };
+
+  const classifyMove = (
+    san: string,
+    color: "w" | "b",
+    scoreBefore: number,
+    scoreAfter: number,
+    bestMoveUci: string,
+    moveIndex: number,
+    isCustomFen = false
+  ): MoveClassification => {
+    if (san.includes("#")) {
+      return "best";
+    }
+
+    if (!isCustomFen && moveIndex < 12) {
+      return "book";
+    }
+
+    const scoreDiff = color === "w" 
+      ? (scoreAfter - scoreBefore) 
+      : (scoreBefore - scoreAfter);
+
+    const isBrilliantAttempt = scoreDiff >= 0 && (san.includes("x") && (san.includes("Q") || san.includes("R") || san.includes("B") || san.includes("N")));
+    if (isBrilliantAttempt) {
+      return "brilliant";
+    }
+
+    if (scoreDiff >= -0.05) {
+      return "best";
+    }
+    if (scoreDiff >= -0.20) {
+      return "excellent";
+    }
+    if (scoreDiff >= -0.50) {
+      return "good";
+    }
+    if (scoreDiff >= -1.0) {
+      return "inaccuracy";
+    }
+    if (scoreDiff >= -2.0) {
+      return "mistake";
+    }
+    return "blunder";
+  };
+
+  const computeMetrics = (movesList: AnalyzedMove[]) => {
+    const whiteMoves = movesList.filter((m) => m.color === "w");
+    const blackMoves = movesList.filter((m) => m.color === "b");
+
+    const categoryScores: Record<MoveClassification, number> = {
+      brilliant: 100,
+      great: 100,
+      best: 100,
+      excellent: 90,
+      good: 85,
+      book: 100,
+      inaccuracy: 60,
+      mistake: 30,
+      blunder: 0
+    };
+
+    const runTally = (list: AnalyzedMove[]) => {
+      const tally: Record<MoveClassification, number> = {
+        brilliant: 0, great: 0, best: 0, excellent: 0, good: 0, book: 0, inaccuracy: 0, mistake: 0, blunder: 0
+      };
+      let sum = 0;
+      
+      list.forEach((m) => {
+        tally[m.classification] += 1;
+        sum += categoryScores[m.classification];
+      });
+
+      const accuracy = list.length > 0 ? Math.round(sum / list.length) : 100;
+      return { tally, accuracy };
+    };
+
+    const whiteStats = runTally(whiteMoves);
+    const blackStats = runTally(blackMoves);
+
+    setWhiteAccuracy(whiteStats.accuracy);
+    setBlackAccuracy(blackStats.accuracy);
+    
+    setCounts({
+      white: whiteStats.tally,
+      black: blackStats.tally
+    });
+
+    setAnalyzedMoves(movesList);
+  };
+
+  const triggerFullReview = async () => {
+    if (history.length === 0 || !workerRef.current) return;
+    setIsReviewRunning(true);
+    setReviewProgress(0);
+
+    const positions: { fenBefore: string; fenAfter: string; san: string; color: "w" | "b" }[] = [];
+    const initialChess = new Chess();
+    let startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    try {
+      initialChess.loadPgn(game.pgn());
+      startingFen = initialChess.header().FEN || startingFen;
+    } catch {}
+    const isCustomFen = startingFen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    const tempChess = new Chess(startingFen);
+    
+    for (let i = 0; i < history.length; i++) {
+      const fenBefore = tempChess.fen();
+      const move = history[i];
+      try {
+        tempChess.move(move);
+      } catch {
+        // Fallback
+      }
+      const fenAfter = tempChess.fen();
+      positions.push({
+        fenBefore,
+        fenAfter,
+        san: move,
+        color: i % 2 === 0 ? "w" : "b"
+      });
+    }
+
+    const worker = workerRef.current;
+    const analyzed: AnalyzedMove[] = [];
+
+    const evaluateFen = (fen: string): Promise<{ score: number; bestMove: string }> => {
+      return new Promise((resolve) => {
+        let currentScore = 0.35;
+        let bestMove = "";
+        let resolved = false;
+
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            console.warn("[Review Engine] Timeout waiting for FEN:", fen, "Sending stop...");
+            worker.postMessage("stop");
+          }
+        }, 5000); // 5 seconds safety timeout
+
+        const handleMsg = (e: MessageEvent) => {
+          const line = e.data;
+          if (typeof line !== "string") return;
+
+          if (line.startsWith("info") && line.includes("score")) {
+            if (line.includes("score cp")) {
+              const cpMatch = line.match(/score cp (-?\d+)/);
+              if (cpMatch) {
+                currentScore = parseInt(cpMatch[1]) / 100;
+              }
+            } else if (line.includes("score mate")) {
+              const mateMatch = line.match(/score mate (-?\d+)/);
+              if (mateMatch) {
+                currentScore = parseInt(mateMatch[1]) > 0 ? 10.0 : -10.0;
+              }
+            }
+            const activeTurn = fen.split(" ")[1];
+            if (activeTurn === "b") {
+              currentScore = -currentScore;
+            }
+          }
+
+          if (line.startsWith("bestmove")) {
+            const parts = line.split(" ");
+            bestMove = parts[1];
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              worker.removeEventListener("message", handleMsg);
+              console.log(`[Review Engine] Resolved FEN: ${fen} -> Score: ${currentScore}, BestMove: ${bestMove}`);
+              resolve({ score: currentScore, bestMove });
+            }
+          }
+        };
+
+        worker.addEventListener("message", handleMsg);
+        worker.postMessage("stop");
+        worker.postMessage(`position fen ${fen}`);
+        worker.postMessage("go depth 8");
+      });
+    };
+
+    const localHistoryEval: number[] = [0.35];
+
+    for (let i = 0; i < history.length; i++) {
+      const pos = positions[i];
+      const beforeResult = await evaluateFen(pos.fenBefore);
+      const afterResult = await evaluateFen(pos.fenAfter);
+
+      const classification = classifyMove(
+        pos.san,
+        pos.color,
+        beforeResult.score,
+        afterResult.score,
+        beforeResult.bestMove,
+        i,
+        isCustomFen
+      );
+
+      analyzed.push({
+        san: pos.san,
+        color: pos.color,
+        fenBefore: pos.fenBefore,
+        fenAfter: pos.fenAfter,
+        scoreBefore: beforeResult.score,
+        scoreAfter: afterResult.score,
+        bestMove: beforeResult.bestMove,
+        classification
+      });
+
+      localHistoryEval.push(afterResult.score);
+      setReviewProgress(Math.round(((i + 1) / history.length) * 100));
+    }
+
+    setEvalHistory(localHistoryEval);
+    computeMetrics(analyzed);
+    setIsReviewRunning(false);
+    setActiveTab("review");
   };
 
   return (
@@ -311,77 +589,270 @@ export default function AnalysisPage() {
 
       </div>
 
-      {/* ─── RIGHT PANEL: Engine statistics & Moves history ─── */}
-      <aside className="h-full flex flex-col overflow-hidden bg-[#1e1c1a] border-l border-white/[0.07]" style={{ width: "290px", minWidth: "290px", maxWidth: "290px" }}>
+      {/* ─── RIGHT PANEL: Engine statistics, Move Review & PGN paste ─── */}
+      <aside className="h-full flex flex-col overflow-hidden bg-[#1a1917] border-l border-white/[0.07]" style={{ width: "320px", minWidth: "320px", maxWidth: "320px" }}>
         
-        {/* Engine Switch & Status Dashboard */}
-        <div className="shrink-0 p-4 border-b border-white/[0.06] bg-[#161412] space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Gauge className="h-4 w-4 text-[#81b64c]" />
-              <span className="text-xs font-black uppercase tracking-wider text-white">Engine Analysis</span>
-            </div>
-            
+        {/* TAB BUTTONS HEADER */}
+        <div className="shrink-0 flex items-stretch border-b border-white/[0.07] bg-[#161412] h-[45px]">
+          {[
+            { id: "analysis", label: "Analysis", icon: <Cpu className="h-3.5 w-3.5" /> },
+            { id: "review", label: "Review", icon: <Sparkles className="h-3.5 w-3.5" /> },
+            { id: "pgn", label: "PGN", icon: <BarChart2 className="h-3.5 w-3.5" /> },
+          ].map((tab) => (
             <button
-              onClick={() => setEngineActive(!engineActive)}
-              className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${
-                engineActive ? "bg-[#81b64c]" : "bg-[#272522] border border-white/[0.08]"
-              }`}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`
+                flex-1 flex items-center justify-center gap-1.5
+                text-[11px] font-black tracking-wider uppercase
+                transition-all duration-200
+                ${activeTab === tab.id 
+                  ? "text-[#81b64c] bg-[#1a1917] border-b-2 border-[#81b64c]" 
+                  : "text-[#7a7a6e] hover:text-white hover:bg-[#1e1c1a]"}
+              `}
             >
-              <div
-                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-md ${
-                  engineActive ? "left-6.5" : "left-0.5"
-                }`}
-              />
+              {tab.icon}
+              {tab.label}
             </button>
-          </div>
+          ))}
+        </div>
 
-          {engineActive && (
-            <div className="grid grid-cols-2 gap-2 text-center text-xs">
-              <div className="bg-[#111010] p-2.5 rounded-xl border border-white/[0.03]">
-                <span className="text-[10px] text-[#7a7a6e] font-bold block mb-1">EVALUATION</span>
-                <span className="font-mono text-white text-sm font-black">{evalScore}</span>
+        {/* TAB CONTENT VIEWPORT */}
+        <div className="flex-1 overflow-y-auto p-4 min-h-0">
+          
+          {/* TAB 1: LIVE ENGINE ANALYSIS */}
+          {activeTab === "analysis" && (
+            <div className="space-y-4 h-full flex flex-col">
+              <div className="shrink-0 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <Gauge className="h-4 w-4 text-[#81b64c]" />
+                    <span className="text-xs font-black uppercase tracking-wider text-white">Engine Analysis</span>
+                  </div>
+                  
+                  <button
+                    onClick={() => setEngineActive(!engineActive)}
+                    className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${
+                      engineActive ? "bg-[#81b64c]" : "bg-[#272522] border border-white/[0.08]"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-md ${
+                        engineActive ? "left-6.5" : "left-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {engineActive && (
+                  <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                    <div className="bg-[#111010] p-2.5 rounded-xl border border-white/[0.03]">
+                      <span className="text-[9px] text-[#7a7a6e] font-bold block mb-1">EVALUATION</span>
+                      <span className="font-mono text-white text-sm font-black">{evalScore}</span>
+                    </div>
+                    <div className="bg-[#111010] p-2.5 rounded-xl border border-white/[0.03]">
+                      <span className="text-[9px] text-[#7a7a6e] font-bold block mb-1">DEPTH</span>
+                      <span className="font-mono text-white text-sm font-black">{depth} ply</span>
+                    </div>
+                  </div>
+                )}
+
+                {engineActive && (
+                  <div className="bg-[#111010]/60 p-3 rounded-xl border border-white/[0.04]">
+                    <div className="flex items-center gap-1 text-[10px] text-[#7a7a6e] font-bold mb-1">
+                      <TrendingUp className="h-3.5 w-3.5 text-[#81b64c]" />
+                      BEST MOVE LINE
+                    </div>
+                    <p className="font-mono text-xs text-white uppercase tracking-wider truncate">
+                      {bestLine}
+                    </p>
+                  </div>
+                )}
               </div>
-              <div className="bg-[#111010] p-2.5 rounded-xl border border-white/[0.03]">
-                <span className="text-[10px] text-[#7a7a6e] font-bold block mb-1">DEPTH / SPEED</span>
-                <span className="font-mono text-white text-sm font-black">{depth} ply</span>
+
+              {/* Moves History section */}
+              <div className="flex-grow min-h-0 overflow-y-auto border border-white/[0.04] bg-[#111010] rounded-2xl p-2 mt-2">
+                <MoveHistory history={history} />
               </div>
             </div>
           )}
 
-          {engineActive && (
-            <div className="bg-[#111010]/60 p-3 rounded-xl border border-white/[0.04]">
-              <div className="flex items-center gap-1 text-[10px] text-[#7a7a6e] font-bold mb-1.5">
-                <TrendingUp className="h-3.5 w-3.5 text-[#81b64c]" />
-                BEST MOVE LINE
-              </div>
-              <p className="font-mono text-xs text-white uppercase tracking-wider truncate">
-                {bestLine}
-              </p>
+          {/* TAB 2: MOVE REVIEW & ACCURACY GRAPH */}
+          {activeTab === "review" && (
+            <div className="space-y-4">
+              
+              {/* Spinner progress for active reviews */}
+              {isReviewRunning && (
+                <div className="bg-[#111010] p-6 rounded-2xl border border-white/[0.04] text-center space-y-4">
+                  <RefreshCw className="h-8 w-8 text-[#81b64c] animate-spin mx-auto" />
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-black text-white">Analyzing Game Moves...</h4>
+                    <p className="text-[10px] text-[#7a7a6e]">Depth 8 analysis on positions</p>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px] font-mono text-[#7a7a6e]">
+                      <span>Completed</span>
+                      <span>{reviewProgress}%</span>
+                    </div>
+                    <div className="h-2 w-full bg-[#161412] rounded-full overflow-hidden border border-white/[0.02]">
+                      <div className="h-full bg-[#81b64c] rounded-full transition-all duration-200" style={{ width: `${reviewProgress}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Inactive review prompt */}
+              {!isReviewRunning && whiteAccuracy === null && (
+                <div className="bg-[#111010] p-6 rounded-2xl border border-white/[0.04] text-center space-y-3">
+                  <Sparkles className="h-8 w-8 text-yellow-400 mx-auto animate-pulse" />
+                  <div>
+                    <h4 className="text-sm font-black text-white">Game Review Pending</h4>
+                    <p className="text-[10px] text-[#7a7a6e] mt-1">
+                      Let Stockfish categorize your move blunders, inaccuracies, and calculate an accuracy score.
+                    </p>
+                  </div>
+                  <button
+                    onClick={triggerFullReview}
+                    disabled={history.length === 0}
+                    className="w-full py-2.5 bg-[#81b64c] hover:bg-[#90c957] disabled:opacity-20 text-[#0f0e0c] font-black text-xs rounded-xl transition-all shadow-md"
+                  >
+                    Run Full Review
+                  </button>
+                </div>
+              )}
+
+              {/* Reviewed scorecard results */}
+              {!isReviewRunning && whiteAccuracy !== null && (
+                <div className="space-y-4">
+                  {/* Accuracy boxes */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-[#111010] p-3 rounded-2xl border border-white/[0.04] text-center space-y-1">
+                      <span className="text-[9px] text-[#7a7a6e] font-bold block uppercase">White Accuracy</span>
+                      <span className="text-xl font-black text-white font-mono">{whiteAccuracy}%</span>
+                    </div>
+                    <div className="bg-[#111010] p-3 rounded-2xl border border-white/[0.04] text-center space-y-1">
+                      <span className="text-[9px] text-[#7a7a6e] font-bold block uppercase">Black Accuracy</span>
+                      <span className="text-xl font-black text-white font-mono">{blackAccuracy}%</span>
+                    </div>
+                  </div>
+
+                  {/* Evaluation Area Chart */}
+                  <div className="bg-[#111010] p-3 rounded-2xl border border-white/[0.04] space-y-1.5">
+                    <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Evaluation Flow</span>
+                    <div className="h-[90px] w-full mt-1 select-none">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                          data={evalHistory.map((val, idx) => ({ name: idx, eval: val }))}
+                          margin={{ top: 2, right: 2, left: -25, bottom: 2 }}
+                        >
+                          <defs>
+                            <linearGradient id="colorEval" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#81b64c" stopOpacity={0.4}/>
+                              <stop offset="95%" stopColor="#81b64c" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <YAxis domain={[-5, 5]} stroke="#4a4a44" fontSize={8} tickCount={5} />
+                          <Tooltip contentStyle={{ backgroundColor: "#111010", borderColor: "rgba(255,255,255,0.08)", fontSize: 10 }} />
+                          <ReferenceLine y={0} stroke="#4a4a44" strokeDasharray="3 3" />
+                          <Area type="monotone" dataKey="eval" stroke="#81b64c" strokeWidth={1.5} fillOpacity={1} fill="url(#colorEval)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Move tallies table */}
+                  <div className="bg-[#111010] p-3.5 rounded-2xl border border-white/[0.04] text-[10px] space-y-1 max-h-[140px] overflow-y-auto">
+                    <div className="flex justify-between border-b border-white/[0.03] pb-1 text-[#7a7a6e] font-black">
+                      <span>MOVE RATING</span>
+                      <span>W</span>
+                      <span>B</span>
+                    </div>
+                    {[
+                      { label: "Brilliant !! 🌟", key: "brilliant" as MoveClassification },
+                      { label: "Best Move ⭐", key: "best" as MoveClassification },
+                      { label: "Book Move 📖", key: "book" as MoveClassification },
+                      { label: "Excellent ✓", key: "excellent" as MoveClassification },
+                      { label: "Good 👍", key: "good" as MoveClassification },
+                      { label: "Inaccuracy ❓", key: "inaccuracy" as MoveClassification },
+                      { label: "Mistake ❌", key: "mistake" as MoveClassification },
+                      { label: "Blunder 🛑", key: "blunder" as MoveClassification }
+                    ].map((row) => (
+                      <div key={row.key} className="flex justify-between py-0.5 border-b border-white/[0.01]">
+                        <span className="font-semibold text-white">{row.label}</span>
+                        <span className="font-mono text-emerald-400 font-bold">{counts.white[row.key]}</span>
+                        <span className="font-mono text-emerald-400 font-bold">{counts.black[row.key]}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Reviewed moves scroll selector */}
+                  <div className="space-y-1.5 mt-2">
+                    <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Reviewed Moves list</span>
+                    <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                      {analyzedMoves.map((m, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            const tempChess = new Chess(m.fenAfter);
+                            setGame(tempChess);
+                            setHistory(history.slice(0, idx + 1));
+                          }}
+                          className="w-full flex items-center justify-between p-2 rounded-xl bg-[#111010] border border-white/[0.03] hover:border-white/[0.08] text-left transition-all"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-[9px] text-[#7a7a6e]">
+                              {Math.floor(idx / 2) + 1}.{m.color === "w" ? "" : ".."}
+                            </span>
+                            <span className="font-bold text-xs text-white">{m.san}</span>
+                          </div>
+                          <span className={`text-[8px] font-black uppercase border rounded px-1.5 py-0.5 ${
+                            m.classification === "brilliant" ? "text-[#3b82f6] border-[#3b82f6]/20 bg-[#3b82f6]/5" :
+                            m.classification === "best" ? "text-emerald-400 border-emerald-400/20 bg-emerald-400/5" :
+                            m.classification === "book" ? "text-amber-500 border-amber-500/20 bg-amber-500/5" :
+                            m.classification === "blunder" ? "text-red-400 border-red-400/20 bg-red-400/5" :
+                            "text-gray-400 border-white/[0.05]"
+                          }`}>
+                            {m.classification}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
-        </div>
 
-        {/* Move History log */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <Sidebar history={history} />
-        </div>
+          {/* TAB 3: IMPORT PGN FORM */}
+          {activeTab === "pgn" && (
+            <div className="space-y-4">
+              <div className="bg-[#111010] p-4 rounded-2xl border border-white/[0.04] space-y-3">
+                <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Import PGN</span>
+                <textarea
+                  placeholder="Paste raw PGN moves here... e.g. 1. e4 e5 2. Nf3 Nc6..."
+                  value={pgnInput}
+                  onChange={(e) => setPgnInput(e.target.value)}
+                  className="w-full h-28 bg-[#161412] border border-white/[0.06] hover:border-white/[0.1] focus:border-[#81b64c]/50 rounded-xl p-2.5 text-xs text-[#a0a09a] focus:text-white placeholder-[#4a4a44] transition-all resize-none outline-none focus:ring-1 focus:ring-[#81b64c]/20"
+                />
+                <button
+                  onClick={handleLoadPgn}
+                  className="w-full py-2.5 bg-[#81b64c] hover:bg-[#90c957] text-[#0f0e0c] font-black text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                >
+                  Load Game
+                </button>
+              </div>
 
-        {/* Paste PGN Import */}
-        <div className="shrink-0 p-4 border-t border-white/[0.06] bg-[#161412] space-y-3">
-          <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Import PGN</span>
-          <textarea
-            placeholder="Paste raw PGN moves here... e.g. 1. e4 e5 2. Nf3 Nc6..."
-            value={pgnInput}
-            onChange={(e) => setPgnInput(e.target.value)}
-            className="w-full h-16 bg-[#111010] border border-white/[0.06] hover:border-white/[0.1] focus:border-[#81b64c]/50 rounded-xl p-2.5 text-xs text-[#a0a09a] focus:text-white placeholder-[#4a4a44] transition-all resize-none outline-none focus:ring-1 focus:ring-[#81b64c]/20"
-          />
-          <button
-            onClick={handleLoadPgn}
-            className="w-full py-2 bg-[#81b64c] hover:bg-[#90c957] text-[#0f0e0c] font-black text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
-          >
-            Load Game
-          </button>
+              {history.length > 0 && (
+                <button
+                  onClick={triggerFullReview}
+                  className="w-full py-3 bg-[#3b82f6]/20 border border-[#3b82f6]/30 hover:bg-[#3b82f6]/30 text-blue-400 font-black text-xs rounded-2xl transition-all flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="h-4 w-4" /> Run Full Review on Loaded PGN
+                </button>
+              )}
+            </div>
+          )}
+
         </div>
 
       </aside>

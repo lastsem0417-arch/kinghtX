@@ -472,6 +472,45 @@ io.on('connection', (socket: Socket) => {
     });
   });
 
+  // ─── EVENT: global_chat_send ────────────────────────────────────────────────
+  socket.on('global_chat_send', (payload: { text: string }) => {
+    const { text } = payload;
+    if (!text || !text.trim()) return;
+
+    io.emit('global_chat_received', {
+      sender: user.username,
+      text: text.substring(0, 150),
+      timestamp: Date.now(),
+    });
+  });
+
+  // ─── EVENT: friend_request_notification ─────────────────────────────────────
+  socket.on('friend_request_notification', (payload: { targetUserId: string }) => {
+    const { targetUserId } = payload;
+    const recipientSockets = onlineUsers.get(targetUserId);
+    if (recipientSockets) {
+      recipientSockets.forEach((socketId) => {
+        io.to(socketId).emit('incoming_friend_request', {
+          senderUsername: user.username,
+          senderId: user.userId,
+        });
+      });
+    }
+  });
+
+  // ─── EVENT: friend_request_accepted ─────────────────────────────────────────
+  socket.on('friend_request_accepted', (payload: { targetUserId: string }) => {
+    const { targetUserId } = payload;
+    const recipientSockets = onlineUsers.get(targetUserId);
+    if (recipientSockets) {
+      recipientSockets.forEach((socketId) => {
+        io.to(socketId).emit('friend_request_accepted_notify', {
+          senderUsername: user.username,
+        });
+      });
+    }
+  });
+
   // ─── EVENT: disconnect ─────────────────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log(`User disconnected: @${user.username} (${socket.id})`);

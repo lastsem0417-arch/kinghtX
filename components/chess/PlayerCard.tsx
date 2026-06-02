@@ -57,7 +57,7 @@ export default function PlayerCard({
       <div className="flex items-center gap-2 min-w-0">
         <div className="relative flex-shrink-0">
           {username ? (
-            <Link href={`/profile/${username}`} className="block hover:opacity-85 transition-opacity">
+            <Link href={username === "bots" ? "/bots" : username === "coaches" ? "/coaches" : `/profile/${username}`} className="block hover:opacity-85 transition-opacity">
               <div
                 className={`
                   h-9 w-9 overflow-hidden rounded-sm
@@ -107,7 +107,7 @@ export default function PlayerCard({
         <div className="min-w-0">
           {username ? (
             <Link
-              href={`/profile/${username}`}
+              href={username === "bots" ? "/bots" : username === "coaches" ? "/coaches" : `/profile/${username}`}
               className="text-[13px] font-bold text-white hover:text-[#81b64c] transition-colors leading-tight truncate max-w-[130px] block"
             >
               {name}

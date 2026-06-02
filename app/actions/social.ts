@@ -89,3 +89,59 @@ export async function rejectFriendRequest(senderId: string) {
   revalidatePath('/dashboard');
   return { success: true };
 }
+
+// ─── Search User Profile ──────────────────────────────────────────────────────
+export async function searchUserProfile(usernameToSearch: string) {
+  const session = await getSession();
+  if (!session) return { error: 'Unauthorized' };
+
+  await connectToDatabase();
+
+  const targetUser = await User.findOne({
+    username: { $regex: new RegExp(`^${usernameToSearch.trim()}$`, 'i') }
+  });
+
+  if (!targetUser) {
+    return { error: 'User not found' };
+  }
+
+  const currentUserId = session.userId;
+  let relationship: 'self' | 'friend' | 'incoming_request' | 'outgoing_request' | 'none' = 'none';
+
+  if (targetUser._id.toString() === currentUserId) {
+    relationship = 'self';
+  } else {
+    const currentUser = await User.findById(currentUserId);
+    if (currentUser) {
+      if (currentUser.friends.some(id => id.toString() === targetUser._id.toString())) {
+        relationship = 'friend';
+      } else if (currentUser.friendRequests.some(id => id.toString() === targetUser._id.toString())) {
+        relationship = 'incoming_request';
+      } else if (targetUser.friendRequests.some(id => id.toString() === currentUserId)) {
+        relationship = 'outgoing_request';
+      }
+    }
+  }
+
+  return {
+    success: true,
+    user: {
+      _id: targetUser._id.toString(),
+      username: targetUser.username,
+      avatar: targetUser.avatar,
+      rating: {
+        rapid: targetUser.rating?.rapid ?? 800,
+        blitz: targetUser.rating?.blitz ?? 800,
+        bullet: targetUser.rating?.bullet ?? 800,
+        puzzle: targetUser.rating?.puzzle ?? 800,
+      },
+      stats: {
+        wins: targetUser.stats?.wins ?? 0,
+        losses: targetUser.stats?.losses ?? 0,
+        draws: targetUser.stats?.draws ?? 0,
+      },
+      lastSeen: targetUser.lastSeen.toISOString(),
+      relationship,
+    }
+  };
+}

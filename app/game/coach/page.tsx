@@ -88,6 +88,8 @@ function CoachGameContent() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedGameId, setSavedGameId] = useState<string | null>(null);
   const [isEvaluatingPlayerMove, setIsEvaluatingPlayerMove] = useState(false);
+  const [ratingDiff, setRatingDiff] = useState<number | null>(null);
+  const [newRatingVal, setNewRatingVal] = useState<number | null>(null);
 
   // Highlighting & Markings
   const [moveSquares, setMoveSquares] = useState<any>({});
@@ -252,6 +254,7 @@ function CoachGameContent() {
         }, 150);
       } else {
         isAnalyzingRef.current = true;
+        workerRef.current?.postMessage("stop");
         workerRef.current?.postMessage(`position fen ${game.fen()}`);
         workerRef.current?.postMessage("go depth 10");
       }
@@ -328,8 +331,10 @@ function CoachGameContent() {
         userColor: userColorStr
       });
 
-      if (res.data?.gameId) {
+      if (res.data?.success) {
         setSavedGameId(res.data.gameId);
+        setRatingDiff(res.data.ratingChange);
+        setNewRatingVal(res.data.newRating);
       }
     } catch (err) {
       console.error("Failed to save coach training session:", err);
@@ -337,8 +342,9 @@ function CoachGameContent() {
   };
 
   const applyMove = (moveData: { from: string; to: string; promotion?: string }, isBot: boolean) => {
-    const gameCopy = new Chess(gameRef.current.fen());
+    const gameCopy = new Chess();
     try {
+      gameCopy.loadPgn(gameRef.current.pgn());
       const moveResult = gameCopy.move(moveData);
 
       if (moveResult) {
@@ -374,7 +380,7 @@ function CoachGameContent() {
         return true;
       }
     } catch (err) {
-      console.error("Invalid move attempted:", err);
+      console.warn("Invalid move attempted:", moveData);
     }
     return false;
   };
@@ -452,7 +458,11 @@ function CoachGameContent() {
     const newGame = new Chess();
     const movesToReplay = history.slice(0, -1);
     movesToReplay.forEach((m) => {
-      newGame.move(m);
+      try {
+        newGame.move(m);
+      } catch (e) {
+        console.error("Error replaying move in coach handleUndo:", m, e);
+      }
     });
 
     setGame(newGame);
@@ -508,7 +518,8 @@ function CoachGameContent() {
   const handleResign = async () => {
     if (gameStatusRef.current !== "playing") return;
     
-    const endedGame = new Chess(gameRef.current.fen());
+    const endedGame = new Chess();
+    endedGame.loadPgn(gameRef.current.pgn());
 
     setGameStatus("lost");
     loseSound.current?.play().catch(() => {});
@@ -531,6 +542,8 @@ function CoachGameContent() {
     setMoveSquares({});
     setHintSquare(null);
     setSavedGameId(null);
+    setRatingDiff(null);
+    setNewRatingVal(null);
 
     const greeting = coach.greetings[Math.floor(Math.random() * coach.greetings.length)];
     addChatMessage(coach.name, greeting);
@@ -661,9 +674,16 @@ function CoachGameContent() {
       <div className="flex-grow min-w-0 flex flex-col min-h-0 py-4 px-4 bg-[#161412] justify-between">
         
         {/* Header toolbar */}
-        <div className="flex items-center justify-between shrink-0 mb-2">
-          <button onClick={() => router.push("/coaches")} className="flex items-center gap-1.5 text-xs text-[#7a7a6e] hover:text-white transition-colors">
-            <ArrowLeft className="h-4 w-4" /> Exit to Coaches
+        <div className="flex items-center justify-between shrink-0 mb-3 bg-[#111010]/60 border border-white/[0.04] px-4 py-2.5 rounded-2xl backdrop-blur-md">
+          <button 
+            onClick={() => router.push("/coaches")} 
+            className="
+              flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] hover:bg-[#81b64c]/10 hover:border-[#81b64c]/30
+              text-[#a0a09a] hover:text-[#81b64c] font-black text-xs transition-all duration-200 shadow-sm active:scale-[0.98]
+            "
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0" />
+            <span>Exit to Voice Coaches</span>
           </button>
           
           <div className="flex items-center gap-4">
@@ -686,6 +706,7 @@ function CoachGameContent() {
             active={game.turn() !== playerColor && gameStatus === "playing" && !isBlunderState}
             side="top"
             avatar={coach.avatar}
+            username="coaches"
             capturedPieces={playerColor === "w" ? stats.capturedWhite : stats.capturedBlack}
             capturedColor={playerColor === "w" ? "w" : "b"}
             materialAdvantage={playerColor === "w" ? stats.blackAdvantage : stats.whiteAdvantage}
@@ -791,6 +812,15 @@ function CoachGameContent() {
               <span className="text-sm font-black capitalize text-white block">
                 {gameStatus === "won" ? "🏆 You Won!" : "❌ Coach Won!"}
               </span>
+
+              {ratingDiff !== null && (
+                <div className="text-xs font-mono font-bold text-center bg-[#161412] px-3 py-1.5 rounded-xl border border-white/[0.03]">
+                  Rapid: <span className="text-white">{newRatingVal}</span>{" "}
+                  <span className={ratingDiff >= 0 ? "text-green-400" : "text-red-400"}>
+                    ({ratingDiff >= 0 ? `+${ratingDiff}` : ratingDiff})
+                  </span>
+                </div>
+              )}
 
               <p className="text-[10px] text-[#7a7a6e] font-semibold text-center leading-snug">
                 Every training match helps build stronger tactical muscles. Play another match to test new ideas!

@@ -30,7 +30,7 @@ const features = [
 
 export default function Features() {
   return (
-    <section className="px-8 py-24">
+    <section id="features" className="px-8 py-24 scroll-mt-16">
       <h2 className="text-5xl font-bold text-center mb-16">
         Why KnightX?
       </h2>

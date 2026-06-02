@@ -68,13 +68,28 @@ export default function GameReplay({ game }: GameReplayProps) {
 
   // Compute current FEN based on move index
   const getCurrentFen = () => {
+    const initialChess = new Chess();
+    let startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    try {
+      initialChess.loadPgn(game.pgn);
+      startingFen = initialChess.header().FEN || startingFen;
+    } catch {}
+
     if (currentMoveIndex === -1) {
-      return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+      return startingFen;
     }
-    const tempChess = new Chess();
+    const tempChess = new Chess(startingFen);
     for (let i = 0; i <= currentMoveIndex; i++) {
       if (moves[i]) {
-        tempChess.move(moves[i].san);
+        try {
+          tempChess.move({
+            from: moves[i].from,
+            to: moves[i].to,
+            promotion: moves[i].promotion || undefined
+          });
+        } catch (e) {
+          console.error("Error applying move in getCurrentFen:", moves[i], e);
+        }
       }
     }
     return tempChess.fen();
