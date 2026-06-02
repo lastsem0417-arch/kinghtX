@@ -19,9 +19,12 @@ import {
   Sparkles,
   BarChart2,
   RefreshCw,
-  GraduationCap
+  GraduationCap,
+  Volume2,
+  VolumeX
 } from "lucide-react";
 import { AreaChart, Area, YAxis, ReferenceLine, ResponsiveContainer, Tooltip } from "recharts";
+import { scanTactics } from "@/lib/chessTactics";
 
 type MoveClassification = "brilliant" | "great" | "best" | "excellent" | "good" | "book" | "inaccuracy" | "mistake" | "blunder";
 
@@ -52,6 +55,26 @@ export default function AnalysisPage() {
   const [depth, setDepth] = useState<number>(0);
   const [pgnInput, setPgnInput] = useState("");
   const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // Opening Explorer State
+  const [openingData, setOpeningData] = useState<{
+    name: string;
+    white: number;
+    draws: number;
+    black: number;
+    moves: { san: string; play: number; white: number; draws: number; black: number }[];
+  } | null>(null);
+  const [loadingOpening, setLoadingOpening] = useState(false);
+
+  // Coach Voice Speak function
+  const speak = (text: string) => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
+      window.speechSynthesis.speak(utterance);
+    }
+  };
 
   // Chess.com Parity States
   const [activeTab, setActiveTab] = useState<"analysis" | "review" | "pgn">("analysis");
@@ -202,6 +225,41 @@ export default function AnalysisPage() {
       setDepth(0);
     }
   }, [game, engineActive]);
+
+  // Fetch opening explorer data from Lichess on FEN change
+  useEffect(() => {
+    const fetchOpening = async () => {
+      const fen = game.fen();
+      setLoadingOpening(true);
+      try {
+        const encodedFen = encodeURIComponent(fen);
+        const res = await axios.get(`https://explorer.lichess.ovh/masters?fen=${encodedFen}`);
+        const data = res.data;
+        if (data && data.opening) {
+          setOpeningData({
+            name: data.opening.name || "Unknown Opening",
+            white: data.white || 0,
+            draws: data.draws || 0,
+            black: data.black || 0,
+            moves: data.moves ? data.moves.slice(0, 3).map((m: any) => ({
+              san: m.san,
+              play: m.white + m.draws + m.black,
+              white: m.white,
+              draws: m.draws,
+              black: m.black
+            })) : []
+          });
+        } else {
+          setOpeningData(null);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch Lichess opening explorer data:", err);
+      } finally {
+        setLoadingOpening(false);
+      }
+    };
+    fetchOpening();
+  }, [game]);
 
   // Chess move handlers
   const makeMove = (move: any) => {
@@ -667,6 +725,129 @@ export default function AnalysisPage() {
                       {bestLine}
                     </p>
                   </div>
+                )}
+              </div>
+
+              {/* COACH COMMENTARY / TACTICS SCANNER */}
+              {(() => {
+                const activeTactics = scanTactics(game.fen());
+                if (activeTactics.length === 0) return null;
+                return (
+                  <div className="shrink-0 bg-[#81b64c]/10 border border-[#81b64c]/20 p-3 rounded-xl space-y-1 text-left">
+                    <div className="flex items-center justify-between text-[10px] text-[#81b64c] font-black uppercase tracking-wider">
+                      <span className="flex items-center gap-1.5">🎓 Coach Tactical Scan</span>
+                      <button 
+                        onClick={() => speak(activeTactics.join(" "))}
+                        title="Read coach comments"
+                        className="p-1 rounded bg-[#81b64c]/15 hover:bg-[#81b64c]/30 text-white transition-all active:scale-[0.95] cursor-pointer"
+                      >
+                        🔊 Speak
+                      </button>
+                    </div>
+                    <p className="text-xs text-[#a0a09a] leading-relaxed">
+                      {activeTactics.join(" ")}
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* LICHESS OPENING EXPLORER */}
+              <div className="shrink-0 bg-[#111010]/60 p-3 rounded-xl border border-white/[0.04] space-y-2.5">
+                <div className="flex items-center gap-1.5 text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider">
+                  <GraduationCap className="h-3.5 w-3.5 text-[#81b64c]" />
+                  Opening Explorer
+                </div>
+                
+                {loadingOpening ? (
+                  <div className="flex items-center gap-2 text-xs text-[#7a7a6e] py-1.5">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#81b64c]" />
+                    <span>Querying Lichess database...</span>
+                  </div>
+                ) : openingData ? (
+                  <div className="space-y-2">
+                    <div className="text-xs font-black text-white leading-tight">
+                      {openingData.name}
+                    </div>
+                    
+                    {/* HSL percentage bar */}
+                    {openingData.white + openingData.draws + openingData.black > 0 && (
+                      <div className="space-y-1">
+                        <div className="h-4.5 w-full rounded-lg overflow-hidden flex text-[9px] font-black font-mono">
+                          {(() => {
+                            const total = openingData.white + openingData.draws + openingData.black;
+                            const wPct = Math.round((openingData.white / total) * 100);
+                            const dPct = Math.round((openingData.draws / total) * 100);
+                            const bPct = 100 - wPct - dPct;
+                            return (
+                              <>
+                                {wPct > 0 && (
+                                  <div 
+                                    className="bg-[#e2e2e0] text-black flex items-center justify-center transition-all duration-300"
+                                    style={{ width: `${wPct}%` }}
+                                    title={`White wins: ${wPct}%`}
+                                  >
+                                    {wPct}%
+                                  </div>
+                                )}
+                                {dPct > 0 && (
+                                  <div 
+                                    className="bg-[#787870] text-white flex items-center justify-center transition-all duration-300"
+                                    style={{ width: `${dPct}%` }}
+                                    title={`Draws: ${dPct}%`}
+                                  >
+                                    {dPct}%
+                                  </div>
+                                )}
+                                {bPct > 0 && (
+                                  <div 
+                                    className="bg-[#262421] text-[#a0a09a] flex items-center justify-center transition-all duration-300 border-l border-white/[0.05]"
+                                    style={{ width: `${bPct}%` }}
+                                    title={`Black wins: ${bPct}%`}
+                                  >
+                                    {bPct}%
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                        <div className="flex justify-between text-[8px] text-[#7a7a6e] font-bold">
+                          <span>White Wins</span>
+                          <span>Draws</span>
+                          <span>Black Wins</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Book Moves continuation */}
+                    {openingData.moves && openingData.moves.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-white/[0.03]">
+                        <span className="text-[8px] text-[#7a7a6e] font-black uppercase tracking-wider block mb-1">Book Moves</span>
+                        <div className="space-y-1">
+                          {openingData.moves.map((mv, index) => {
+                            const totalMove = mv.white + mv.draws + mv.black;
+                            const wPct = totalMove > 0 ? Math.round((mv.white / totalMove) * 100) : 0;
+                            const dPct = totalMove > 0 ? Math.round((mv.draws / totalMove) * 100) : 0;
+                            const bPct = totalMove > 0 ? 100 - wPct - dPct : 0;
+                            return (
+                              <div key={mv.san} className="flex justify-between items-center bg-white/[0.02] border border-white/[0.03] p-1.5 rounded-lg text-[10px]">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-4 h-4 rounded bg-[#81b64c]/10 text-[#81b64c] font-black flex items-center justify-center text-[9px]">{index + 1}</span>
+                                  <span className="font-extrabold text-white font-mono">{mv.san}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 font-mono text-[9px] text-[#7a7a6e]">
+                                  <span className="text-white font-bold">{mv.play.toLocaleString()} games</span>
+                                  <span>({wPct}/{dPct}/{bPct})</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-[#7a7a6e] italic">Position is out of book / custom layout</p>
                 )}
               </div>
 

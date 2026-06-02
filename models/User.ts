@@ -26,6 +26,8 @@ export interface IUser extends Document {
   botProgress?: Record<string, number>;
   createdAt: Date;
   lastSeen: Date;
+  resetToken?: string | null;
+  resetTokenExpires?: Date | null;
 }
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -84,6 +86,8 @@ const UserSchema = new Schema<IUser>(
       default: {},
     },
     lastSeen: { type: Date, default: Date.now },
+    resetToken: { type: String, default: null },
+    resetTokenExpires: { type: Date, default: null },
   },
   {
     timestamps: true,

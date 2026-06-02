@@ -17,11 +17,16 @@ export interface IGame extends Document {
   pgn: string;
   fen: string;
   result?: 'white' | 'black' | 'draw';
-  termination?: 'checkmate' | 'resign' | 'timeout' | 'draw' | 'abandoned';
+  termination?: 'checkmate' | 'resign' | 'timeout' | 'draw' | 'abandoned' | 'three-check';
   timeControl: string;
   timeControlCategory: 'bullet' | 'blitz' | 'rapid' | 'classical';
   opening?: string;
   accuracy?: {
+    white: number;
+    black: number;
+  };
+  variant: 'standard' | '3check' | 'chess960';
+  checks: {
     white: number;
     black: number;
   };
@@ -62,7 +67,7 @@ const GameSchema = new Schema<IGame>(
     },
     termination: {
       type: String,
-      enum: ['checkmate', 'resign', 'timeout', 'draw', 'abandoned'],
+      enum: ['checkmate', 'resign', 'timeout', 'draw', 'abandoned', 'three-check'],
     },
     timeControl: { type: String, required: true },
     timeControlCategory: {
@@ -74,6 +79,11 @@ const GameSchema = new Schema<IGame>(
     accuracy: {
       white: { type: Number },
       black: { type: Number },
+    },
+    variant: { type: String, enum: ['standard', '3check', 'chess960'], default: 'standard' },
+    checks: {
+      white: { type: Number, default: 0 },
+      black: { type: Number, default: 0 },
     },
     status: {
       type: String,

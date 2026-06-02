@@ -26,6 +26,7 @@ export default function PlayPage() {
 
   const [selectedMode, setSelectedMode] = useState("10 min");
   const [rated, setRated] = useState(true);
+  const [selectedVariant, setSelectedVariant] = useState<"standard" | "3check" | "chess960">("standard");
 
   // Connect socket and fetch user if not present
   useEffect(() => {
@@ -90,7 +91,7 @@ export default function PlayPage() {
   };
 
   function handleStartMatchmaking() {
-    joinQueue(selectedMode);
+    joinQueue(selectedMode, selectedVariant);
   }
 
   function formatQueueTime(seconds: number) {
@@ -212,6 +213,39 @@ export default function PlayPage() {
                         }`}
                       />
                     </button>
+                  </div>
+
+                  {/* Variant Selection */}
+                  <div className="space-y-2.5 pt-2">
+                    <div className="flex items-center gap-1.5 px-1">
+                      <span className="text-xs">⚔️</span>
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#a0a09a]">
+                        Game Variant
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: "standard", label: "Standard", desc: "Classic rules" },
+                        { id: "3check", label: "3-Check", desc: "3 checks wins" },
+                        { id: "chess960", label: "Chess960", desc: "Random rank" }
+                      ].map((v) => (
+                        <button
+                          key={v.id}
+                          onClick={() => setSelectedVariant(v.id as any)}
+                          className={`
+                            p-2.5 rounded-xl border text-xs flex flex-col items-center justify-center text-center transition-all cursor-pointer select-none
+                            ${selectedVariant === v.id
+                              ? "bg-[#81b64c]/15 text-[#81b64c] border-[#81b64c] shadow-[0_0_12px_rgba(129,182,76,0.12)]"
+                              : "bg-[#111010] border-white/[0.04] text-[#a0a09a] hover:bg-[#272522] hover:text-white"
+                            }
+                          `}
+                        >
+                          <span className="font-black block">{v.label}</span>
+                          <span className="text-[8px] text-[#7a7a6e] font-semibold mt-0.5 leading-none block">{v.desc}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Mode Categories */}

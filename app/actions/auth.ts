@@ -138,11 +138,18 @@ export async function requestPasswordReset(email: string) {
     const pin = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
     const token = `KNIGHTX-RESET-${pin}`;
 
+    // Store secure verification details in DB
+    user.resetToken = token;
+    user.resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes validity
+    await user.save();
+
+    console.log(`[PASSWORD RESET] Simulated email sent to ${user.email} with code: ${token}`);
+
     return { 
       success: true, 
       token, 
       email: user.email,
-      message: 'Secure verification token generated successfully.' 
+      message: 'Secure verification token generated and saved successfully.' 
     };
   } catch (err) {
     console.error('Password reset request error:', err);
@@ -150,7 +157,25 @@ export async function requestPasswordReset(email: string) {
   }
 }
 
-export async function resetPassword(email: string, password: string) {
+export async function verifyResetToken(email: string, token: string) {
+  try {
+    await connectToDatabase();
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      resetToken: token.trim().toUpperCase(),
+      resetTokenExpires: { $gt: new Date() }
+    });
+    if (!user) {
+      return { success: false, message: 'Invalid or expired verification token.' };
+    }
+    return { success: true };
+  } catch (err) {
+    console.error('Verify reset token error:', err);
+    return { success: false, message: 'Failed to verify token. Please try again.' };
+  }
+}
+
+export async function resetPassword(email: string, password: string, token: string) {
   try {
     // Basic password validation
     if (password.length < 8) {
@@ -162,18 +187,25 @@ export async function resetPassword(email: string, password: string) {
 
     await connectToDatabase();
     
+    // Find user with valid token
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      resetToken: token.trim().toUpperCase(),
+      resetTokenExpires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return { success: false, message: 'Invalid or expired verification token. Please start the recovery process again.' };
+    }
+
     // Hash new password using bcrypt
     const passwordHash = await bcrypt.hash(password, 12);
     
-    // Update user record
-    const updatedUser = await User.findOneAndUpdate(
-      { email: email.toLowerCase().trim() },
-      { passwordHash }
-    );
-
-    if (!updatedUser) {
-      return { success: false, message: 'User not found. Password reset failed.' };
-    }
+    // Update user record and clear reset token
+    user.passwordHash = passwordHash;
+    user.resetToken = null;
+    user.resetTokenExpires = null;
+    await user.save();
 
     return { success: true, message: 'Your password has been reset successfully.' };
   } catch (err) {

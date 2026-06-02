@@ -53,11 +53,16 @@ interface GameState {
   drawOffered: boolean; // Draw offered by opponent to us
   isOpponentDisconnected: boolean;
   gameOverResult: GameOverResult | null;
+  variant: 'standard' | '3check' | 'chess960' | null;
+  checks: {
+    white: number;
+    black: number;
+  };
 
   // Actions
   connectSocket: () => Promise<void>;
   disconnectSocket: () => void;
-  joinQueue: (timeControl: string) => void;
+  joinQueue: (timeControl: string, variant?: 'standard' | '3check' | 'chess960') => void;
   leaveQueue: () => void;
   joinGame: (roomId: string) => void;
   makeMove: (move: any) => void;
@@ -94,6 +99,8 @@ export const useGameStore = create<GameState>((set, get) => {
     drawOffered: false,
     isOpponentDisconnected: false,
     gameOverResult: null,
+    variant: 'standard',
+    checks: { white: 0, black: 0 },
 
     connectSocket: async () => {
       // Avoid duplicate socket connection
@@ -173,16 +180,19 @@ export const useGameStore = create<GameState>((set, get) => {
               : { username: payload.white.username, rating: payload.white.rating },
             gameStatus: payload.status,
             gameOverResult: null,
+            variant: payload.variant || 'standard',
+            checks: payload.checks || { white: 0, black: 0 },
           });
         });
 
-        socket.on('move_made', (payload: { move: any; fen: string; pgn: string; turn: 'w' | 'b'; clocks: Clocks }) => {
+        socket.on('move_made', (payload: { move: any; fen: string; pgn: string; turn: 'w' | 'b'; clocks: Clocks; checks?: { white: number; black: number } }) => {
           set({
             fen: payload.fen,
             pgn: payload.pgn,
             turn: payload.turn,
             clocks: payload.clocks,
             drawOffered: false, // Reset draw offers on move
+            checks: payload.checks || get().checks,
           });
         });
 
@@ -253,10 +263,10 @@ export const useGameStore = create<GameState>((set, get) => {
       });
     },
 
-    joinQueue: (timeControl: string) => {
+    joinQueue: (timeControl: string, variant?: 'standard' | '3check' | 'chess960') => {
       const { socket } = get();
       if (socket) {
-        socket.emit('join_queue', { timeControl });
+        socket.emit('join_queue', { timeControl, variant: variant || 'standard' });
       }
     },
 
@@ -331,6 +341,8 @@ export const useGameStore = create<GameState>((set, get) => {
         drawOffered: false,
         isOpponentDisconnected: false,
         gameOverResult: null,
+        variant: 'standard',
+        checks: { white: 0, black: 0 },
       });
     },
 

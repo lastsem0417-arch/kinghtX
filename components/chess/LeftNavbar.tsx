@@ -14,7 +14,8 @@ import {
   LogOut, 
   ChevronLeft, 
   ChevronRight,
-  Settings
+  Settings,
+  BookOpen
 } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 
@@ -39,6 +40,7 @@ export default function LeftNavbar({ activeUser }: LeftNavbarProps) {
     { label: "Coaching", icon: GraduationCap, link: "/coaches" },
     { label: "Puzzles", icon: Trophy, link: "/puzzles" },
     { label: "Analysis Board", icon: Activity, link: "/analysis" },
+    { label: "Endgame Drills", icon: BookOpen, link: "/drills" },
     { label: "Leaderboards", icon: Award, link: "/leaderboards" },
   ];
 

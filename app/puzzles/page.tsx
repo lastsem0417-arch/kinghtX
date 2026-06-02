@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Chess } from "chess.js";
 import BoardSection from "@/components/chess/BoardSection";
 import axios from "axios";
@@ -349,6 +350,20 @@ export default function PuzzlesPage() {
               </span>
             </div>
           </div>
+
+          <Link
+            href="/puzzles/battle"
+            className="
+              w-full py-2.5 rounded-xl
+              bg-[#81b64c]/10 hover:bg-[#81b64c]/20
+              border border-[#81b64c]/20 hover:border-[#81b64c]/40
+              text-[#81b64c] hover:text-[#90c957]
+              font-black text-xs flex items-center justify-center gap-1.5
+              transition-all active:scale-[0.98]
+            "
+          >
+            ⚔️ Join Puzzle Battle
+          </Link>
         </div>
 
         {/* Instructions / Outcome Panel */}

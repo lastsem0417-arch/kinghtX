@@ -84,6 +84,8 @@ export default function GameRoomPage({ params }: { params: Promise<{ id: string 
     clocks,
     makeMove,
     gameOverResult,
+    variant,
+    checks,
   } = useGameStore();
 
   const [moveSquares, setMoveSquares] = useState<any>({});
@@ -300,15 +302,19 @@ export default function GameRoomPage({ params }: { params: Promise<{ id: string 
     return user.rating.rapid;
   };
 
-  const bottomName = isSpectator ? "White Player" : user?.username || "You";
-  const bottomRating = isSpectator ? 800 : getRatingForCategory();
-  const bottomTime = formatTime(isSpectator || isWhite ? clocks.white : clocks.black);
-  const bottomActive = gameStatus === "active" && (isSpectator || isWhite ? turn === "w" : turn === "b");
-
-  const topName = opponent?.username || (isSpectator ? "Black Player" : "Opponent");
+  const topChecksCount = checks ? (isWhite || isSpectator ? checks.black : checks.white) : 0;
+  const topChecks = variant === "3check" && topChecksCount > 0 ? ` (${"+".repeat(topChecksCount)})` : "";
+  const topName = (opponent?.username || (isSpectator ? "Black Player" : "Opponent")) + topChecks;
   const topRating = opponent?.rating || 800;
   const topTime = formatTime(isSpectator || isWhite ? clocks.black : clocks.white);
   const topActive = gameStatus === "active" && (isSpectator || isWhite ? turn === "b" : turn === "w");
+
+  const bottomChecksCount = checks ? (isWhite || isSpectator ? checks.white : checks.black) : 0;
+  const bottomChecks = variant === "3check" && bottomChecksCount > 0 ? ` (${"+".repeat(bottomChecksCount)})` : "";
+  const bottomName = (isSpectator ? "White Player" : user?.username || "You") + bottomChecks;
+  const bottomRating = isSpectator ? 800 : getRatingForCategory();
+  const bottomTime = formatTime(isSpectator || isWhite ? clocks.white : clocks.black);
+  const bottomActive = gameStatus === "active" && (isSpectator || isWhite ? turn === "w" : turn === "b");
 
   const handleBackToLobby = () => {
     router.push("/play");

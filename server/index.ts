@@ -63,16 +63,90 @@ const GameSchema = new mongoose.Schema({
   pgn: { type: String, default: '' },
   fen: { type: String, default: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' },
   result: { type: String, enum: ['white', 'black', 'draw'] },
-  termination: { type: String, enum: ['checkmate', 'resign', 'timeout', 'draw', 'abandoned'] },
+  termination: { type: String, enum: ['checkmate', 'resign', 'timeout', 'draw', 'abandoned', 'three-check'] },
   timeControl: String,
   timeControlCategory: { type: String, enum: ['bullet', 'blitz', 'rapid', 'classical'] },
   opening: { type: String, default: '' },
+  variant: { type: String, enum: ['standard', '3check', 'chess960'], default: 'standard' },
+  checks: {
+    white: { type: Number, default: 0 },
+    black: { type: Number, default: 0 },
+  },
   status: { type: String, enum: ['waiting', 'active', 'completed'], default: 'waiting' },
   roomId: { type: String, required: true, unique: true },
   endedAt: Date,
 }, { timestamps: true });
 
 const Game = mongoose.models.Game || mongoose.model('Game', GameSchema);
+
+const PuzzleSchema = new mongoose.Schema({
+  puzzleId: { type: String, required: true, unique: true },
+  fen: { type: String, required: true },
+  moves: [{ type: String, required: true }],
+  rating: { type: Number, required: true },
+  ratingDeviation: { type: Number, required: true },
+  popularity: { type: Number, required: true },
+  themes: [{ type: String }],
+  gameUrl: { type: String },
+}, { timestamps: true });
+
+const Puzzle = mongoose.models.Puzzle || mongoose.model('Puzzle', PuzzleSchema);
+
+const samplePuzzles = [
+  {
+    puzzleId: 'scholar_mate',
+    fen: 'r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4',
+    moves: ['h5f7'],
+    rating: 600,
+    ratingDeviation: 80,
+    popularity: 95,
+    themes: ['mate', 'mateIn1', 'opening', 'short'],
+  },
+  {
+    puzzleId: 'back_rank_mate',
+    fen: '6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1',
+    moves: ['e1e8'],
+    rating: 800,
+    ratingDeviation: 75,
+    popularity: 98,
+    themes: ['mate', 'mateIn1', 'backRankMate', 'endgame'],
+  },
+  {
+    puzzleId: 'bishop_sacrifice',
+    fen: 'rn1qkbnr/ppp2ppp/3p4/4p3/2B1P1b1/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 4',
+    moves: ['c4f7', 'e8f7', 'f3g5', 'f7e8', 'd1g4'],
+    rating: 1100,
+    ratingDeviation: 60,
+    popularity: 90,
+    themes: ['tactics', 'fork', 'sacrifice', 'opening'],
+  }
+];
+
+interface PuzzleBattleRoom {
+  battleId: string;
+  p1: {
+    userId: string;
+    username: string;
+    socketId: string;
+    score: number;
+    strikes: number;
+    currentPuzzleIndex: number;
+    finished: boolean;
+  };
+  p2: {
+    userId: string;
+    username: string;
+    socketId: string;
+    score: number;
+    strikes: number;
+    currentPuzzleIndex: number;
+    finished: boolean;
+  };
+  puzzles: any[];
+  startTime: number;
+  duration: number;
+  timer: NodeJS.Timeout | null;
+}
 
 // ─── Initialize Express & Socket Server ──────────────────────────────────────
 const app = express();
@@ -130,6 +204,11 @@ interface GameRoom {
     white?: NodeJS.Timeout;
     black?: NodeJS.Timeout;
   };
+  variant: 'standard' | '3check' | 'chess960';
+  checks: {
+    white: number;
+    black: number;
+  };
 }
 
 interface QueuePlayer {
@@ -140,12 +219,16 @@ interface QueuePlayer {
   category: 'bullet' | 'blitz' | 'rapid' | 'classical';
   socketId: string;
   joinedAt: number;
+  variant?: 'standard' | '3check' | 'chess960';
 }
 
 // ─── In-Memory Game State ────────────────────────────────────────────────────
 const activeGames = new Map<string, GameRoom>();
 const matchmakingQueue: QueuePlayer[] = [];
 const onlineUsers = new Map<string, Set<string>>(); // userId -> Set of socketIds
+
+const puzzleBattleQueue: QueuePlayer[] = [];
+const activePuzzleBattles = new Map<string, PuzzleBattleRoom>();
 
 // Helper to determine time control category
 function getCategory(timeControl: string): 'bullet' | 'blitz' | 'rapid' | 'classical' {
@@ -233,8 +316,7 @@ io.on('connection', (socket: Socket) => {
   io.emit('user_status', { userId: user.userId, status: 'online' });
 
   // ─── EVENT: join_queue ─────────────────────────────────────────────────────
-  socket.on('join_queue', async (payload: { timeControl: string }) => {
-    // Prevent duplicate entries in queue
+  socket.on('join_queue', async (payload: { timeControl: string; variant?: 'standard' | '3check' | 'chess960' }) => {
     const isAlreadyQueued = matchmakingQueue.some(p => p.userId === user.userId);
     if (isAlreadyQueued) return;
 
@@ -242,6 +324,7 @@ io.on('connection', (socket: Socket) => {
       const category = getCategory(payload.timeControl);
       const userDoc = await User.findById(user.userId);
       const rating = userDoc?.rating?.[category] ?? 800;
+      const variant = payload.variant || 'standard';
 
       const player: QueuePlayer = {
         userId: user.userId,
@@ -251,11 +334,12 @@ io.on('connection', (socket: Socket) => {
         category,
         socketId: socket.id,
         joinedAt: Date.now(),
+        variant
       };
 
       matchmakingQueue.push(player);
-      socket.emit('queue_joined', { timeControl: payload.timeControl, rating });
-      console.log(`Player @${user.username} joined matchmaking for ${payload.timeControl} (Rating: ${rating})`);
+      socket.emit('queue_joined', { timeControl: payload.timeControl, rating, variant });
+      console.log(`Player @${user.username} joined matchmaking for ${payload.timeControl} Variant: ${variant} (Rating: ${rating})`);
     } catch (err) {
       console.error('Error joining queue:', err);
     }
@@ -313,6 +397,8 @@ io.on('connection', (socket: Socket) => {
         black: { username: room.black.username, rating: room.black.rating },
         yourColor: side,
         status: room.status,
+        variant: room.variant,
+        checks: room.checks,
       });
     } else {
       // Spectator join
@@ -328,6 +414,8 @@ io.on('connection', (socket: Socket) => {
         black: { username: room.black.username, rating: room.black.rating },
         yourColor: 'spectator',
         status: room.status,
+        variant: room.variant,
+        checks: room.checks,
       });
 
       // Update spectator counts
@@ -371,6 +459,13 @@ io.on('connection', (socket: Socket) => {
         room.lastMoveTime = now;
         room.drawOfferedBy = null; // Clear draw offers on a move
 
+        // Check if opponent is checked after our move
+        const inCheck = room.chess.inCheck();
+        if (inCheck) {
+          const checkingSide = room.chess.turn() === 'w' ? 'black' : 'white';
+          room.checks[checkingSide] += 1;
+        }
+
         // Broadcast move execution to all participants in the room
         io.to(`game:${roomId}`).emit('move_made', {
           move: moveResult,
@@ -378,18 +473,22 @@ io.on('connection', (socket: Socket) => {
           pgn: room.chess.pgn(),
           turn: room.chess.turn(),
           clocks: room.clocks,
+          checks: room.checks,
         });
 
         // Restart timer countdown for the other player
         startRoomCountdown(roomId);
 
-        // Check if game has ended by chess rules
-        if (room.chess.isGameOver()) {
+        // Check 3-check victory or standard chess game over
+        const currentCheckingSide = room.chess.turn() === 'w' ? 'black' : 'white';
+        if (room.variant === '3check' && room.checks[currentCheckingSide] >= 3) {
+          await handleGameOver(room, currentCheckingSide, 'three-check');
+        } else if (room.chess.isGameOver()) {
           let winner: 'white' | 'black' | 'draw' = 'draw';
-          let termination: 'checkmate' | 'draw' = 'draw';
+          let termination: 'checkmate' | 'draw' | 'three-check' = 'draw';
 
           if (room.chess.isCheckmate()) {
-            winner = isWhiteTurn ? 'white' : 'black';
+            winner = room.chess.turn() === 'w' ? 'black' : 'white';
             termination = 'checkmate';
           }
 
@@ -484,6 +583,111 @@ io.on('connection', (socket: Socket) => {
     });
   });
 
+  // ─── EVENT: send_direct_message ─────────────────────────────────────────────
+  socket.on('send_direct_message', (payload: { receiverId: string; text: string; createdAt?: string }) => {
+    const { receiverId, text } = payload;
+    if (!receiverId || !text || !text.trim()) return;
+
+    const messageToEmit = {
+      senderId: user.userId,
+      receiverId,
+      text: text.trim(),
+      createdAt: payload.createdAt ? new Date(payload.createdAt) : new Date(),
+    };
+
+    // Send to all receiver's socket connections
+    const receiverSockets = onlineUsers.get(receiverId);
+    if (receiverSockets) {
+      receiverSockets.forEach((sId) => {
+        io.to(sId).emit('receive_direct_message', messageToEmit);
+      });
+    }
+
+    // Send to all other sender's socket connections (multi-tab sync)
+    const senderSockets = onlineUsers.get(user.userId);
+    if (senderSockets) {
+      senderSockets.forEach((sId) => {
+        if (sId !== socket.id) {
+          io.to(sId).emit('receive_direct_message', messageToEmit);
+        }
+      });
+    }
+  });
+
+  // ─── EVENT: join_puzzle_battle_queue ─────────────────────────────────────────
+  socket.on('join_puzzle_battle_queue', async () => {
+    const isAlreadyQueued = puzzleBattleQueue.some(p => p.userId === user.userId);
+    if (isAlreadyQueued) return;
+
+    try {
+      const userDoc = await User.findById(user.userId);
+      const rating = userDoc?.rating?.puzzle ?? 800;
+
+      const player: QueuePlayer = {
+        userId: user.userId,
+        username: user.username,
+        rating,
+        timeControl: 'puzzle',
+        category: 'rapid',
+        socketId: socket.id,
+        joinedAt: Date.now(),
+      };
+
+      puzzleBattleQueue.push(player);
+      socket.emit('puzzle_queue_joined', { rating });
+      console.log(`Player @${user.username} joined Puzzle Battle queue (Rating: ${rating})`);
+    } catch (err) {
+      console.error('Error joining puzzle queue:', err);
+    }
+  });
+
+  // ─── EVENT: leave_puzzle_battle_queue ────────────────────────────────────────
+  socket.on('leave_puzzle_battle_queue', () => {
+    const index = puzzleBattleQueue.findIndex(p => p.socketId === socket.id);
+    if (index !== -1) {
+      puzzleBattleQueue.splice(index, 1);
+      socket.emit('puzzle_queue_left');
+      console.log(`Player @${user.username} left Puzzle Battle queue`);
+    }
+  });
+
+  // ─── EVENT: puzzle_battle_submit ─────────────────────────────────────────────
+  socket.on('puzzle_battle_submit', (payload: { battleId: string; isCorrect: boolean }) => {
+    const { battleId, isCorrect } = payload;
+    const battle = activePuzzleBattles.get(battleId);
+    if (!battle) return;
+
+    const isP1 = battle.p1.userId === user.userId;
+    const player = isP1 ? battle.p1 : battle.p2;
+
+    if (player.finished) return;
+
+    if (isCorrect) {
+      player.score += 1;
+    } else {
+      player.strikes += 1;
+      if (player.strikes >= 3) {
+        player.finished = true;
+      }
+    }
+
+    player.currentPuzzleIndex += 1;
+    if (player.currentPuzzleIndex >= battle.puzzles.length) {
+      player.finished = true;
+    }
+
+    // Broadcast sync
+    io.to(`puzzle_battle:${battleId}`).emit('puzzle_battle_sync', {
+      p1: { userId: battle.p1.userId, score: battle.p1.score, strikes: battle.p1.strikes, finished: battle.p1.finished, currentIndex: battle.p1.currentPuzzleIndex },
+      p2: { userId: battle.p2.userId, score: battle.p2.score, strikes: battle.p2.strikes, finished: battle.p2.finished, currentIndex: battle.p2.currentPuzzleIndex }
+    });
+
+    // Check if both finished
+    if (battle.p1.finished && battle.p2.finished) {
+      endPuzzleBattle(battleId, "both_finished");
+    }
+  });
+
   // ─── EVENT: friend_request_notification ─────────────────────────────────────
   socket.on('friend_request_notification', (payload: { targetUserId: string }) => {
     const { targetUserId } = payload;
@@ -529,6 +733,32 @@ io.on('connection', (socket: Socket) => {
     const queueIndex = matchmakingQueue.findIndex(p => p.socketId === socket.id);
     if (queueIndex !== -1) {
       matchmakingQueue.splice(queueIndex, 1);
+    }
+
+    // Remove from puzzle battle queue
+    const puzzleQueueIndex = puzzleBattleQueue.findIndex(p => p.socketId === socket.id);
+    if (puzzleQueueIndex !== -1) {
+      puzzleBattleQueue.splice(puzzleQueueIndex, 1);
+    }
+
+    // Handle puzzle battle disconnections
+    for (const [battleId, battle] of activePuzzleBattles.entries()) {
+      const isP1 = battle.p1.socketId === socket.id;
+      const isP2 = battle.p2.socketId === socket.id;
+
+      if (isP1 || isP2) {
+        const disconnectedPlayer = isP1 ? battle.p1 : battle.p2;
+        disconnectedPlayer.finished = true;
+
+        io.to(`puzzle_battle:${battleId}`).emit('puzzle_battle_sync', {
+          p1: { userId: battle.p1.userId, score: battle.p1.score, strikes: battle.p1.strikes, finished: battle.p1.finished, currentIndex: battle.p1.currentPuzzleIndex },
+          p2: { userId: battle.p2.userId, score: battle.p2.score, strikes: battle.p2.strikes, finished: battle.p2.finished, currentIndex: battle.p2.currentPuzzleIndex }
+        });
+
+        if (battle.p1.finished && battle.p2.finished) {
+          endPuzzleBattle(battleId, "disconnect");
+        }
+      }
     }
 
     // Handle game disconnections
@@ -604,7 +834,7 @@ function parseIncrement(timeControl: string): number {
 async function handleGameOver(
   room: GameRoom, 
   winner: 'white' | 'black' | 'draw', 
-  termination: 'checkmate' | 'resign' | 'timeout' | 'draw' | 'abandoned'
+  termination: 'checkmate' | 'resign' | 'timeout' | 'draw' | 'abandoned' | 'three-check'
 ) {
   if (room.status === 'completed') return;
   room.status = 'completed';
@@ -677,6 +907,8 @@ async function handleGameOver(
       termination,
       timeControl: room.timeControl,
       timeControlCategory: room.timeControlCategory,
+      variant: room.variant,
+      checks: room.checks,
       status: 'completed',
       roomId: room.roomId,
       endedAt: new Date(),
@@ -711,6 +943,43 @@ async function handleGameOver(
   }
 }
 
+function generateChess960Fen(): string {
+  const squares = Array(8).fill('');
+  const blackBishops = [1, 3, 5, 7];
+  const whiteBishops = [0, 2, 4, 6];
+  const b1 = blackBishops[Math.floor(Math.random() * 4)];
+  const b2 = whiteBishops[Math.floor(Math.random() * 4)];
+  squares[b1] = 'B';
+  squares[b2] = 'B';
+
+  const getFree = () => squares.map((v, i) => v === '' ? i : -1).filter(i => i !== -1);
+
+  let free = getFree();
+  const q = free[Math.floor(Math.random() * free.length)];
+  squares[q] = 'Q';
+
+  free = getFree();
+  const n1 = free[Math.floor(Math.random() * free.length)];
+  squares[n1] = 'N';
+  free = getFree();
+  const n2 = free[Math.floor(Math.random() * free.length)];
+  squares[n2] = 'N';
+
+  free = getFree();
+  squares[free[0]] = 'R';
+  squares[free[1]] = 'K';
+  squares[free[2]] = 'R';
+
+  const backRankWhite = squares.join('');
+  const backRankBlack = squares.join('').toLowerCase();
+
+  const r1File = String.fromCharCode(97 + free[0]);
+  const r2File = String.fromCharCode(97 + free[2]);
+  const castlingRights = `${r2File.toUpperCase()}${r1File.toUpperCase()}${r2File}${r1File}`;
+
+  return `${backRankBlack}/pppppppp/8/8/8/8/PPPPPPPP/${backRankWhite} w ${castlingRights} - 0 1`;
+}
+
 // ─── TICK: Matchmaking Loop ──────────────────────────────────────────────────
 setInterval(async () => {
   if (matchmakingQueue.length < 2) return;
@@ -727,8 +996,9 @@ setInterval(async () => {
 
       const p2 = matchmakingQueue[j];
 
-      // Match conditions: same time control
+      // Match conditions: same time control and variant
       if (p1.timeControl !== p2.timeControl) continue;
+      if ((p1.variant || 'standard') !== (p2.variant || 'standard')) continue;
       // Exclude self-matches
       if (p1.userId === p2.userId) continue;
 
@@ -766,11 +1036,17 @@ setInterval(async () => {
         else if (tc.includes('15 | 10')) seconds = 900;
         else if (tc.includes('30 min')) seconds = 1800;
 
+        const variant = p1.variant || 'standard';
+        let startingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        if (variant === 'chess960') {
+          startingFen = generateChess960Fen();
+        }
+
         const gameRoom: GameRoom = {
           roomId,
           white: { userId: white.userId, username: white.username, rating: white.rating, socketId: white.socketId },
           black: { userId: black.userId, username: black.username, rating: black.rating, socketId: black.socketId },
-          chess: new Chess(),
+          chess: new Chess(startingFen),
           timeControl: p1.timeControl,
           timeControlCategory: p1.category,
           status: 'active',
@@ -780,6 +1056,8 @@ setInterval(async () => {
           drawOfferedBy: null,
           spectators: new Set(),
           disconnectTimers: {},
+          variant,
+          checks: { white: 0, black: 0 }
         };
 
         activeGames.set(roomId, gameRoom);
@@ -812,6 +1090,114 @@ setInterval(async () => {
     matchmakingQueue.splice(idx, 1);
   }
 }, 2000);
+
+// Helper to end a puzzle battle
+async function endPuzzleBattle(battleId: string, reason: string) {
+  const battle = activePuzzleBattles.get(battleId);
+  if (!battle) return;
+
+  if (battle.timer) {
+    clearTimeout(battle.timer);
+  }
+
+  let winnerId = null;
+  if (battle.p1.score > battle.p2.score) {
+    winnerId = battle.p1.userId;
+  } else if (battle.p2.score > battle.p1.score) {
+    winnerId = battle.p2.userId;
+  }
+
+  io.to(`puzzle_battle:${battleId}`).emit('puzzle_battle_over', {
+    winnerId,
+    reason,
+    scores: {
+      [battle.p1.userId]: battle.p1.score,
+      [battle.p2.userId]: battle.p2.score
+    }
+  });
+
+  activePuzzleBattles.delete(battleId);
+}
+
+// ─── TICK: Puzzle Battle Matchmaking Loop ──────────────────────────────────────
+setInterval(async () => {
+  if (puzzleBattleQueue.length < 2) return;
+
+  const p1 = puzzleBattleQueue.shift()!;
+  const p2 = puzzleBattleQueue.shift()!;
+
+  try {
+    const pLimit = 15;
+    const avgRating = Math.round((p1.rating + p2.rating) / 2);
+    
+    // Fetch puzzles
+    let queryPuzzles = await Puzzle.find({
+      rating: { $gte: avgRating - 350, $lte: avgRating + 350 }
+    }).limit(pLimit);
+
+    if (queryPuzzles.length < pLimit) {
+      const remaining = pLimit - queryPuzzles.length;
+      const fallback = await Puzzle.find({
+        puzzleId: { $nin: queryPuzzles.map(q => q.puzzleId) }
+      }).limit(remaining);
+      queryPuzzles = [...queryPuzzles, ...fallback];
+    }
+
+    if (queryPuzzles.length === 0) {
+      queryPuzzles = samplePuzzles;
+    }
+
+    const clientPuzzles = queryPuzzles.map((p, idx) => ({
+      index: idx,
+      puzzleId: p.puzzleId,
+      fen: p.fen,
+      rating: p.rating,
+      themes: p.themes,
+      blunder: p.moves[0],
+      solutionLength: p.moves.length,
+      moves: p.moves
+    }));
+
+    const battleId = new mongoose.Types.ObjectId().toString();
+    const battleRoom: PuzzleBattleRoom = {
+      battleId,
+      p1: { userId: p1.userId, username: p1.username, socketId: p1.socketId, score: 0, strikes: 0, currentPuzzleIndex: 0, finished: false },
+      p2: { userId: p2.userId, username: p2.username, socketId: p2.socketId, score: 0, strikes: 0, currentPuzzleIndex: 0, finished: false },
+      puzzles: queryPuzzles,
+      startTime: Date.now(),
+      duration: 180,
+      timer: null
+    };
+
+    battleRoom.timer = setTimeout(async () => {
+      await endPuzzleBattle(battleId, "time_up");
+    }, 180000);
+
+    activePuzzleBattles.set(battleId, battleRoom);
+
+    // Join sockets to battle room
+    const s1 = io.sockets.sockets.get(p1.socketId);
+    const s2 = io.sockets.sockets.get(p2.socketId);
+
+    if (s1) s1.join(`puzzle_battle:${battleId}`);
+    if (s2) s2.join(`puzzle_battle:${battleId}`);
+
+    const startPayload = {
+      battleId,
+      duration: 180,
+      puzzles: clientPuzzles,
+      p1: { userId: p1.userId, username: p1.username, rating: p1.rating },
+      p2: { userId: p2.userId, username: p2.username, rating: p2.rating }
+    };
+
+    io.to(`puzzle_battle:${battleId}`).emit('puzzle_battle_started', startPayload);
+    console.log(`Puzzle Battle paired: @${p1.username} vs @${p2.username} in room ${battleId}`);
+
+  } catch (err) {
+    console.error('Error starting puzzle battle:', err);
+    puzzleBattleQueue.push(p1, p2);
+  }
+}, 3000);
 
 // Start server listening
 server.listen(PORT, () => {

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { requestPasswordReset, resetPassword } from '@/app/actions/auth';
+import { requestPasswordReset, resetPassword, verifyResetToken } from '@/app/actions/auth';
 import { ArrowLeft, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 export default function ForgotPasswordForm() {
@@ -38,18 +38,22 @@ export default function ForgotPasswordForm() {
     }
   };
 
-  const handleVerifyCode = (e: React.FormEvent) => {
+  const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!enteredCode) {
       setErrorMsg('Please enter the verification code.');
       return;
     }
     setErrorMsg('');
+    setLoading(true);
 
-    if (enteredCode.trim().toUpperCase() === generatedToken.trim().toUpperCase()) {
+    const res = await verifyResetToken(email, enteredCode);
+    setLoading(false);
+
+    if (res.success) {
       setStep('reset');
     } else {
-      setErrorMsg('Invalid verification code. Please copy and paste the token exactly.');
+      setErrorMsg(res.message || 'Invalid or expired verification code.');
     }
   };
 
@@ -70,7 +74,7 @@ export default function ForgotPasswordForm() {
     setErrorMsg('');
     setLoading(true);
 
-    const res = await resetPassword(email, newPassword);
+    const res = await resetPassword(email, newPassword, enteredCode);
     setLoading(false);
 
     if (res.success) {

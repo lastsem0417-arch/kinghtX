@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Chess } from "chess.js";
 import axios from "axios";
-import { ArrowLeft, Award, Sparkles, RefreshCw, BarChart2, CheckCircle2, AlertTriangle, XCircle, BookOpen, Star, HelpCircle, GraduationCap } from "lucide-react";
+import { ArrowLeft, Award, Sparkles, RefreshCw, BarChart2, CheckCircle2, AlertTriangle, XCircle, BookOpen, Star, HelpCircle, GraduationCap, Volume2, VolumeX } from "lucide-react";
 import BoardSection from "@/components/chess/BoardSection";
 import PlayerCard from "@/components/chess/PlayerCard";
 import LeftNavbar from "@/components/chess/LeftNavbar";
+import { scanTactics } from "@/lib/chessTactics";
 
 interface ReviewPlayer {
   username: string;
@@ -150,6 +151,18 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
 
   // Stockfish worker reference
   const workerRef = useRef<Worker | null>(null);
+
+  // TTS Voice State
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+
+  const speak = (text: string) => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
+      window.speechSynthesis.speak(utterance);
+    }
+  };
 
   // Load game record from DB
   useEffect(() => {
@@ -505,9 +518,25 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
   const stats = getCapturedStats(activeChess);
 
   const selectedMove = currentMoveIndex !== -1 ? analyzedMoves[currentMoveIndex] : null;
-  const coachCommentary = selectedMove 
+  const activeFen = getCurrentFen();
+  const activeTactics = scanTactics(activeFen);
+
+  let coachCommentary = selectedMove 
     ? getCoachCommentary(selectedMove) 
     : "Select any move from the list below. I will analyze the move quality and offer coach tactical remarks here.";
+
+  if (activeTactics.length > 0) {
+    coachCommentary += " " + activeTactics.slice(0, 2).join(" ");
+  }
+
+  // Speak coach commentary when move changes if TTS enabled
+  useEffect(() => {
+    if (ttsEnabled && coachCommentary) {
+      // Strip emojis for Speech synthesis
+      const cleanText = coachCommentary.replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDFFF]/g, '');
+      speak(cleanText);
+    }
+  }, [currentMoveIndex, ttsEnabled, coachCommentary]);
 
   return (
     <main className="h-screen w-screen overflow-hidden bg-[#161412] text-white flex flex-col md:flex-row relative">
@@ -624,9 +653,26 @@ export default function GameReviewPage({ params }: { params: Promise<{ id: strin
           
           {/* Dynamic Coach explanation container */}
           <div className="shrink-0 p-4 border-b border-white/[0.06] bg-[#161412] space-y-3">
-            <div className="flex items-center gap-2">
-              <GraduationCap className="h-4 w-4 text-[#81b64c]" />
-              <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Game Review Coach</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <GraduationCap className="h-4 w-4 text-[#81b64c]" />
+                <span className="text-[10px] text-[#7a7a6e] font-black uppercase tracking-wider block">Game Review Coach</span>
+              </div>
+              <button
+                onClick={() => {
+                  const val = !ttsEnabled;
+                  setTtsEnabled(val);
+                  if (val) speak("Voice coach active");
+                }}
+                className={`p-1.5 rounded-lg border transition-all active:scale-[0.95] flex items-center gap-1 text-[9px] font-black uppercase tracking-wider ${
+                  ttsEnabled 
+                    ? "bg-[#81b64c]/10 border-[#81b64c]/30 text-[#81b64c]" 
+                    : "bg-[#272522] border-white/[0.04] text-[#7a7a6e] hover:text-white"
+                }`}
+              >
+                {ttsEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                Coach Voice
+              </button>
             </div>
 
             <div className="bg-[#111010] p-4 rounded-2xl border border-white/[0.04] flex gap-3">

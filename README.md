@@ -6,19 +6,23 @@ KnightX is a premium, real-time chess platform built with Next.js, WebSockets, a
 
 ## 🚀 Core Features
 
-### 1. Real-Time Multiplayer Matchmaking
+### 1. Real-Time Multiplayer Matchmaking & Variants
 - **Multiple Time Controls**: Matchmaking queues for Bullet (1m, 1|1, 2|1), Blitz (3m, 3|2, 5m), and Rapid (10m, 15|10, 30m) categories.
 - **WebSocket Synchronization**: Fast matchmaking queues and live boards synced in real-time using Socket.io.
 - **Elo Ratings**: Win or lose rating points with full matchmaking Elo adjustments.
+- **Chess Variants**: Play standard chess or choose:
+  - **3-Check**: The player checking the opponent's king 3 times wins the game immediately. Features live check counters.
+  - **Chess960 (Fischer Random)**: Generates random back-rank configurations (opposite-colored bishops, king between rooks) with fully compliant Fischer Random castling support.
 
-### 2. Stockfish Engine Game Review & Replays
-- **Interactive Move Analysis**: Review completed matches move-by-move. Stockfish 10 analyzes positions sequentially at depth 8.
+### 2. Stockfish Engine Game Review & Self-Analysis
+- **Interactive Move Analysis**: Review completed matches move-by-move. Stockfish 10 analyzes positions sequentially.
 - **Accuracy Report**: Deep review accuracy percentages calculated for both white and black.
 - **Move Classifications**: Highlights move qualities (Brilliant `!!`, Great `!`, Best `⭐`, Excellent `✓`, Good `👍`, Book `📖`, Inaccuracy `❓`, Mistake `❌`, Blunder `🛑`) on the review graph.
-- **Fast-Path Game-Over Resolution**: Instantly calculates draws and mates without clogging worker threads.
+- **Lichess Opening Explorer**: Live integration on the self-analysis board. Fetches master opening names and win/draw percentages, rendered as a sleek visual bar, alongside top book continuations.
+- **Tactical Vision Scanners**: Active client-side scanners automatically flag critical tactical motifs (Forks, Pins, Skewers) on the review and analysis boards.
 
 ### 3. Voice-Assisted AI Chess Coaches
-- **Speech Synthesis**: Choose from 5 voice-enabled tutors (such as Coach Sofia or John) explaining board lines.
+- **Speech Synthesis (TTS)**: Choice of 5 voice-enabled tutors (Coach Sofia, John, etc.) speaking directly to you to explain lines and tactical motifs.
 - **Blunder Intercept Warning**: Coaches flag major mistakes, explaining why a move is a blunder and prompting you to either undo or proceed.
 - **Live Advice Hints**: Ask your coach for suggestions, drawing interactive highlighter indicators on the board.
 
@@ -27,14 +31,23 @@ KnightX is a premium, real-time chess platform built with Next.js, WebSockets, a
 - **Difficulty and Ratings**: Bots have custom rating tiers, profiles, and distinct dialogue styles.
 - **Stars Progress Tracker**: Win games to earn bot stars, recording your progress directly on your profile.
 
-### 5. Tactical Puzzles
+### 5. Tactical Puzzles & Puzzle Battles
 - **Solve and Streak**: Solve daily tactical chess puzzles with interactive board snapping.
+- **Puzzle Battles**: Face off in real-time multiplayer puzzle solving contests! Solves are synchronized over WebSockets, displaying split score bars, wrong-submission freezes, and strike limits (3 strikes and out).
 - **Hints**: Request hints to see candidate piece highlights using Stockfish integration.
 
-### 6. Social Panel & Live Notifications
+### 6. Endgame Drills Arena
+- **Presets & Engine Defense**: Challenge yourself against Stockfish depth 12 in predefined endgame templates: King & Rook, King & Queen, King & 2 Bishops, and King & Pawn (promotion practice).
+- **Move Limits**: Enforces a 50-move limit to convert the checkmate before drawing.
+
+### 7. Social Panel & Live Chat
+- **Real-Time Direct Messaging (DMs)**: Sleek glassmorphic chat overlay. Connects friends in real-time, displaying online status, database message history logs, and instant Socket.io chat synchronization.
 - **Real-Time Alerts**: Receive instant toast notifications when receiving or accepting friend requests.
 - **Interactive Profile Modals**: Search for players, inspect their Elo ratings, check their game statistics, and send requests or challenge them to live games.
-- **Real-time Syncing**: Component structures use `router.refresh()` to sync friend requests and online lists instantly.
+
+### 8. Secure Database-Backed Account Recovery
+- **Verification Code Token**: Secure database persistence of password reset pins with a 15-minute expiration timeline.
+- **Server Verification**: Server-side code checks prevent client-side authentication bypasses, securely updating credentials with `bcrypt`.
 
 ---
 
