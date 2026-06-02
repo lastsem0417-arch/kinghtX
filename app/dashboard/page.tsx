@@ -79,6 +79,20 @@ export default async function DashboardPage() {
     },
   }));
 
+  // Fetch pending outgoing requests where current user's ID is in their friendRequests array
+  const outgoingRequests = await User.find({
+    friendRequests: user._id
+  }, 'username avatar rating');
+
+  const outgoingRequestsData = (outgoingRequests || []).map((o: any) => ({
+    _id: o._id.toString(),
+    username: o.username,
+    avatar: o.avatar,
+    rating: {
+      rapid: o.rating?.rapid ?? 800,
+    },
+  }));
+
   const recentGamesData = recentGames.map((g: any) => ({
     _id: g._id.toString(),
     players: {
@@ -427,7 +441,12 @@ export default async function DashboardPage() {
 
           {/* Social / Friends */}
           <div className="bg-[#1a1917]/80 backdrop-blur-md border border-white/[0.08] rounded-3xl p-5 shadow-xl h-[400px] overflow-hidden hover:border-white/[0.12] transition-colors duration-300">
-            <SocialPanel friends={friendsData} friendRequests={requestsData} currentUserId={user._id.toString()} />
+            <SocialPanel 
+              friends={friendsData} 
+              friendRequests={requestsData} 
+              outgoingRequests={outgoingRequestsData} 
+              currentUserId={user._id.toString()} 
+            />
           </div>
 
         </div>

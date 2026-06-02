@@ -145,3 +145,19 @@ export async function searchUserProfile(usernameToSearch: string) {
     }
   };
 }
+
+// ─── Cancel Friend Request ────────────────────────────────────────────────────
+export async function cancelFriendRequest(targetUserId: string) {
+  const session = await getSession();
+  if (!session) return { error: 'Unauthorized' };
+
+  await connectToDatabase();
+
+  // Remove current user's ID from target's requests
+  await User.findByIdAndUpdate(targetUserId, {
+    $pull: { friendRequests: session.userId }
+  });
+
+  revalidatePath('/dashboard');
+  return { success: true };
+}

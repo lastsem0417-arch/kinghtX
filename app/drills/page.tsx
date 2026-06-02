@@ -54,7 +54,8 @@ const DRILLS: Drill[] = [
 export default function DrillsPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [selectedDrill, setSelectedDrill] = useState<Drill>(DRILLS[0]);
-  const [game, setGame] = useState(new Chess(DRILLS[0].fen));
+  const [gameFen, setGameFen] = useState(DRILLS[0].fen);
+  const gameRef = useRef(new Chess(DRILLS[0].fen));
   
   // Game states
   const [movesCount, setMovesCount] = useState(0);
@@ -113,7 +114,8 @@ export default function DrillsPage() {
   // Reset drill helper
   const handleSelectDrill = (drill: Drill) => {
     setSelectedDrill(drill);
-    setGame(new Chess(drill.fen));
+    gameRef.current = new Chess(drill.fen);
+    setGameFen(drill.fen);
     setMovesCount(0);
     setGameState("active");
     setEngineThinking(false);
@@ -125,7 +127,8 @@ export default function DrillsPage() {
   };
 
   // Check checkmate / stalemate / draw
-  const checkGameStatus = (currentGame = game) => {
+  const checkGameStatus = () => {
+    const currentGame = gameRef.current;
     if (currentGame.isCheckmate()) {
       if (currentGame.turn() === "b") {
         setGameState("won");
@@ -145,19 +148,18 @@ export default function DrillsPage() {
   };
 
   const applyEngineMove = (uciMove: string) => {
-    const gameCopy = new Chess(game.fen());
     try {
       const from = uciMove.substring(0, 2);
       const to = uciMove.substring(2, 4);
       const promotion = uciMove.length > 4 ? uciMove.substring(4, 5) : undefined;
 
-      const result = gameCopy.move({ from, to, promotion });
+      const result = gameRef.current.move({ from, to, promotion });
       if (result) {
-        setGame(gameCopy);
+        setGameFen(gameRef.current.fen());
         setEngineThinking(false);
 
         // Check if game over after engine move
-        const isOver = checkGameStatus(gameCopy);
+        const isOver = checkGameStatus();
         if (!isOver) {
           setFeedback("Your turn! Find the checkmate pattern.");
         }
@@ -171,21 +173,20 @@ export default function DrillsPage() {
   const onDrop = (sourceSquare: string, targetSquare: string) => {
     if (gameState !== "active" || engineThinking) return false;
 
-    const gameCopy = new Chess(game.fen());
     try {
-      const moveResult = gameCopy.move({
+      const moveResult = gameRef.current.move({
         from: sourceSquare,
         to: targetSquare,
         promotion: "q"
       });
 
       if (moveResult) {
-        setGame(gameCopy);
+        setGameFen(gameRef.current.fen());
         const newMovesCount = movesCount + 1;
         setMovesCount(newMovesCount);
 
         // Check game status first
-        const isOver = checkGameStatus(gameCopy);
+        const isOver = checkGameStatus();
         if (isOver) return true;
 
         // Check if moves limit reached
@@ -201,7 +202,7 @@ export default function DrillsPage() {
         
         if (workerRef.current) {
           workerRef.current.postMessage("stop");
-          workerRef.current.postMessage(`position fen ${gameCopy.fen()}`);
+          workerRef.current.postMessage(`position fen ${gameRef.current.fen()}`);
           workerRef.current.postMessage("go depth 12");
         } else {
           // Fallback if worker fails
@@ -305,7 +306,7 @@ export default function DrillsPage() {
           {/* Chessboard block wrapper */}
           <div className="w-full max-w-[480px] aspect-square py-4 shrink-0 flex items-center justify-center relative">
             <BoardSection
-              position={game.fen()}
+              position={gameFen}
               onDrop={onDrop}
               onSquareClick={() => {}}
               customSquareStyles={{}}

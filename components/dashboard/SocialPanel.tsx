@@ -6,7 +6,8 @@ import {
   sendFriendRequest, 
   acceptFriendRequest, 
   rejectFriendRequest,
-  searchUserProfile
+  searchUserProfile,
+  cancelFriendRequest
 } from "@/app/actions/social";
 import { useGameStore } from "@/store/useGameStore";
 import { UserPlus, UserCheck, X, Check, Search, Radio, User as UserIcon, MessageSquare, Send } from "lucide-react";
@@ -36,15 +37,36 @@ interface FriendRequest {
 interface SocialPanelProps {
   friends: Friend[];
   friendRequests: FriendRequest[];
+  outgoingRequests?: FriendRequest[];
   currentUserId: string;
 }
 
-export default function SocialPanel({ friends, friendRequests, currentUserId }: SocialPanelProps) {
+export default function SocialPanel({ 
+  friends, 
+  friendRequests, 
+  outgoingRequests = [], 
+  currentUserId 
+}: SocialPanelProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"social" | "chat">("social");
+  const [activeSocialSubTab, setActiveSocialSubTab] = useState<"friends" | "incoming" | "sent">("friends");
   const [usernameInput, setUsernameInput] = useState("");
   const [pendingAdd, setPendingAdd] = useState(false);
   const [searchedUser, setSearchedUser] = useState<any | null>(null);
+
+  const handleCancelRequest = async (id: string) => {
+    const res = await cancelFriendRequest(id);
+    if (res?.error) {
+      toast.error(res.error, {
+        style: { background: "#1a1917", color: "#f87171", border: "1px solid rgba(248,113,113,0.15)" }
+      });
+    } else {
+      toast.success("Friend request cancelled", {
+        style: { background: "#1a1917", color: "#81b64c", border: "1px solid rgba(129,182,76,0.15)" }
+      });
+      router.refresh();
+    }
+  };
 
   // Direct Message States
   const [activeChatFriend, setActiveChatFriend] = useState<Friend | null>(null);
@@ -332,147 +354,235 @@ export default function SocialPanel({ friends, friendRequests, currentUserId }: 
               </form>
             </div>
 
-            {/* Friend Requests Incoming */}
-            {friendRequests.length > 0 && (
-              <div className="space-y-2 shrink-0">
-                <h3 className="text-xs font-black uppercase tracking-wider text-[#7a7a6e] flex items-center gap-1.5">
-                  <Radio className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
-                  Requests ({friendRequests.length})
-                </h3>
-                
-                <div className="space-y-1.5">
-                  {friendRequests.map((req) => (
-                    <div 
-                      key={req._id}
-                      className="bg-[#111010] border border-white/[0.05] p-2.5 rounded-xl flex items-center justify-between gap-2"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="h-7 w-7 rounded-lg bg-[#272522] overflow-hidden flex items-center justify-center shrink-0">
-                          <img 
-                            src={req.avatar || "https://www.chess.com/bundles/web/images/user-image.007dad08.svg"} 
-                            alt={req.username}
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <button 
-                            onClick={async () => {
-                              const res = await searchUserProfile(req.username);
-                              if (res.user) setSearchedUser(res.user);
-                            }}
-                            className="text-xs font-bold text-white hover:text-[#81b64c] block truncate transition-colors text-left"
-                          >
-                            {req.username}
-                          </button>
-                          <span className="text-[10px] text-[#7a7a6e] block font-mono leading-none mt-0.5">{req.rating.rapid} Elo</span>
-                        </div>
-                      </div>
+            {/* Social Sub-Tabs Selector */}
+            <div className="flex bg-[#111010]/80 p-0.5 rounded-xl border border-white/[0.04] shrink-0 text-[10px] font-black uppercase tracking-wider">
+              <button
+                type="button"
+                onClick={() => setActiveSocialSubTab("friends")}
+                className={`flex-grow py-1.5 rounded-lg transition-all ${
+                  activeSocialSubTab === "friends" ? "bg-[#272522] text-[#81b64c]" : "text-[#7a7a6e] hover:text-white"
+                }`}
+              >
+                Friends ({friends.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSocialSubTab("incoming")}
+                className={`flex-grow py-1.5 rounded-lg transition-all relative ${
+                  activeSocialSubTab === "incoming" ? "bg-[#272522] text-[#81b64c]" : "text-[#7a7a6e] hover:text-white"
+                }`}
+              >
+                Incoming ({friendRequests.length})
+                {friendRequests.length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full animate-ping" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSocialSubTab("sent")}
+                className={`flex-grow py-1.5 rounded-lg transition-all ${
+                  activeSocialSubTab === "sent" ? "bg-[#272522] text-[#81b64c]" : "text-[#7a7a6e] hover:text-white"
+                }`}
+              >
+                Sent ({outgoingRequests.length})
+              </button>
+            </div>
 
-                      <div className="flex gap-1 shrink-0">
-                        <button
-                          onClick={() => handleAccept(req._id, req.username)}
-                          className="p-1 rounded-lg bg-green-500/10 hover:bg-green-500 text-green-400 hover:text-[#0f0e0c] transition-all"
-                          title="Accept"
+            {/* List based on active social subtab */}
+            {activeSocialSubTab === "friends" && (
+              <div className="flex-1 flex flex-col space-y-2 min-h-0">
+                {friends.length === 0 ? (
+                  <div className="flex-grow border border-dashed border-white/[0.06] rounded-2xl flex flex-col items-center justify-center text-center p-6 text-[#4a4a44]">
+                    <UserIcon className="h-8 w-8 mb-2 stroke-[1.5]" />
+                    <p className="text-xs font-semibold">No friends added yet.</p>
+                    <p className="text-[10px] mt-0.5">Search above to find players.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {friends.map((friend) => {
+                      const online = isOnline(friend.lastSeen);
+                      return (
+                        <div 
+                          key={friend._id}
+                          className="bg-[#111010]/40 border border-white/[0.04] p-3 rounded-xl flex items-center justify-between hover:bg-[#111010] transition-colors"
                         >
-                          <Check className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleReject(req._id)}
-                          className="p-1 rounded-lg bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-[#0f0e0c] transition-all"
-                          title="Decline"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="relative shrink-0">
+                              <div className="h-8 w-8 rounded-lg bg-[#272522] overflow-hidden flex items-center justify-center border border-white/[0.05]">
+                                <img 
+                                  src={friend.avatar || "https://www.chess.com/bundles/web/images/user-image.007dad08.svg"} 
+                                  alt={friend.username}
+                                  className="h-full w-full object-cover"
+                                />
+                              </div>
+                              <div 
+                                className={`
+                                  absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2 border-[#1a1917]
+                                  ${online ? "bg-green-500 animate-pulse" : "bg-neutral-600"}
+                                `}
+                              />
+                            </div>
+
+                            <div className="min-w-0 text-left">
+                              <button 
+                                onClick={async () => {
+                                  const res = await searchUserProfile(friend.username);
+                                  if (res.user) setSearchedUser(res.user);
+                                }}
+                                className="text-xs font-bold text-white hover:text-[#81b64c] block truncate transition-colors text-left"
+                              >
+                                {friend.username}
+                              </button>
+                              <span className="text-[10px] text-[#7a7a6e] block font-mono">
+                                {online ? "Online" : "Offline"} • {friend.rating.rapid} Elo
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-1.5 shrink-0">
+                            <button
+                              onClick={() => setActiveChatFriend(friend)}
+                              className="
+                                p-1.5 rounded-lg border border-white/[0.08] hover:border-[#81b64c]/30
+                                text-[#a0a09a] hover:text-[#81b64c] hover:bg-[#81b64c]/10
+                                transition-all active:scale-[0.95]
+                              "
+                              title="Chat"
+                            >
+                              <MessageSquare className="h-3.5 w-3.5" />
+                            </button>
+                            <Link
+                              href={`/play?challenge=${friend.username}`}
+                              className="
+                                px-2.5 py-1 rounded-lg border border-white/[0.08] hover:border-[#81b64c]/30
+                                text-[10px] font-bold text-[#a0a09a] hover:text-[#81b64c] hover:bg-[#81b64c]/10
+                                transition-all shrink-0
+                              "
+                            >
+                              Challenge
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Friends List */}
-            <div className="flex-1 flex flex-col space-y-2 min-h-0">
-              <h3 className="text-xs font-black uppercase tracking-wider text-[#7a7a6e]">
-                Friends ({friends.length})
-              </h3>
-
-              {friends.length === 0 ? (
-                <div className="flex-grow border border-dashed border-white/[0.06] rounded-2xl flex flex-col items-center justify-center text-center p-6 text-[#4a4a44]">
-                  <UserIcon className="h-8 w-8 mb-2 stroke-[1.5]" />
-                  <p className="text-xs font-semibold">No friends added yet.</p>
-                  <p className="text-[10px] mt-0.5">Search above to find players.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {friends.map((friend) => {
-                    const online = isOnline(friend.lastSeen);
-                    return (
+            {activeSocialSubTab === "incoming" && (
+              <div className="flex-grow flex flex-col space-y-2 min-h-0">
+                {friendRequests.length === 0 ? (
+                  <div className="flex-grow border border-dashed border-white/[0.06] rounded-2xl flex flex-col items-center justify-center text-center p-6 text-[#4a4a44]">
+                    <Radio className="h-8 w-8 mb-2 stroke-[1.5]" />
+                    <p className="text-xs font-semibold">No pending incoming requests.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {friendRequests.map((req) => (
                       <div 
-                        key={friend._id}
+                        key={req._id}
                         className="bg-[#111010]/40 border border-white/[0.04] p-3 rounded-xl flex items-center justify-between hover:bg-[#111010] transition-colors"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="relative shrink-0">
-                            <div className="h-8 w-8 rounded-lg bg-[#272522] overflow-hidden flex items-center justify-center border border-white/[0.05]">
-                              <img 
-                                src={friend.avatar || "https://www.chess.com/bundles/web/images/user-image.007dad08.svg"} 
-                                alt={friend.username}
-                                className="h-full w-full object-cover"
-                              />
-                            </div>
-                            <div 
-                              className={`
-                                absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2 border-[#1a1917]
-                                ${online ? "bg-green-500 animate-pulse" : "bg-neutral-600"}
-                              `}
+                          <div className="h-8 w-8 rounded-lg bg-[#272522] overflow-hidden flex items-center justify-center border border-white/[0.05] shrink-0">
+                            <img 
+                              src={req.avatar || "https://www.chess.com/bundles/web/images/user-image.007dad08.svg"} 
+                              alt={req.username}
+                              className="h-full w-full object-cover"
                             />
                           </div>
-
                           <div className="min-w-0 text-left">
                             <button 
                               onClick={async () => {
-                                const res = await searchUserProfile(friend.username);
+                                const res = await searchUserProfile(req.username);
                                 if (res.user) setSearchedUser(res.user);
                               }}
                               className="text-xs font-bold text-white hover:text-[#81b64c] block truncate transition-colors text-left"
                             >
-                              {friend.username}
+                              {req.username}
                             </button>
-                            <span className="text-[10px] text-[#7a7a6e] block font-mono">
-                              {online ? "Online" : "Offline"} • {friend.rating.rapid} Elo
-                            </span>
+                            <span className="text-[10px] text-[#7a7a6e] block font-mono mt-0.5">{req.rating.rapid} Elo</span>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            onClick={() => handleAccept(req._id, req.username)}
+                            className="p-1.5 rounded-lg bg-green-500/10 hover:bg-green-500 text-green-400 hover:text-[#0f0e0c] transition-all"
+                            title="Accept"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleReject(req._id)}
+                            className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-[#0f0e0c] transition-all"
+                            title="Decline"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeSocialSubTab === "sent" && (
+              <div className="flex-grow flex flex-col space-y-2 min-h-0">
+                {outgoingRequests.length === 0 ? (
+                  <div className="flex-grow border border-dashed border-white/[0.06] rounded-2xl flex flex-col items-center justify-center text-center p-6 text-[#4a4a44]">
+                    <Send className="h-8 w-8 mb-2 stroke-[1.5]" />
+                    <p className="text-xs font-semibold">No pending outgoing requests.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {outgoingRequests.map((req) => (
+                      <div 
+                        key={req._id}
+                        className="bg-[#111010]/40 border border-white/[0.04] p-3 rounded-xl flex items-center justify-between hover:bg-[#111010] transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="h-8 w-8 rounded-lg bg-[#272522] overflow-hidden flex items-center justify-center border border-white/[0.05] shrink-0">
+                            <img 
+                              src={req.avatar || "https://www.chess.com/bundles/web/images/user-image.007dad08.svg"} 
+                              alt={req.username}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                          <div className="min-w-0 text-left">
+                            <button 
+                              onClick={async () => {
+                                const res = await searchUserProfile(req.username);
+                                if (res.user) setSearchedUser(res.user);
+                              }}
+                              className="text-xs font-bold text-white hover:text-[#81b64c] block truncate transition-colors text-left"
+                            >
+                              {req.username}
+                            </button>
+                            <span className="text-[10px] text-[#7a7a6e] block font-mono mt-0.5">{req.rating.rapid} Elo</span>
                           </div>
                         </div>
 
                         <div className="flex gap-1.5 shrink-0">
                           <button
-                            onClick={() => setActiveChatFriend(friend)}
+                            onClick={() => handleCancelRequest(req._id)}
                             className="
-                              p-1.5 rounded-lg border border-white/[0.08] hover:border-[#81b64c]/30
-                              text-[#a0a09a] hover:text-[#81b64c] hover:bg-[#81b64c]/10
-                              transition-all active:scale-[0.95]
+                              px-2 py-1 rounded-lg border border-red-500/20 hover:bg-red-500/10
+                              text-red-400 font-bold text-[10px] transition-all
                             "
-                            title="Chat"
+                            title="Cancel Request"
                           >
-                            <MessageSquare className="h-3.5 w-3.5" />
+                            Cancel
                           </button>
-                          <Link
-                            href={`/play?challenge=${friend.username}`}
-                            className="
-                              px-2.5 py-1 rounded-lg border border-white/[0.08] hover:border-[#81b64c]/30
-                              text-[10px] font-bold text-[#a0a09a] hover:text-[#81b64c] hover:bg-[#81b64c]/10
-                              transition-all shrink-0
-                            "
-                          >
-                            Challenge
-                          </Link>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           /* ─── TAB 2: GLOBAL CHAT WINDOW ─── */
@@ -649,8 +759,36 @@ export default function SocialPanel({ friends, friendRequests, currentUserId }: 
               )}
 
               {searchedUser.relationship === 'outgoing_request' && (
-                <div className="py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 font-extrabold text-xs">
-                  Friend Request Pending
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <div className="flex-grow py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 font-extrabold text-xs flex items-center justify-center">
+                      Request Pending
+                    </div>
+                    <button
+                      onClick={() => {
+                        handleCancelRequest(searchedUser._id);
+                        setSearchedUser(null);
+                      }}
+                      className="px-4 py-2.5 bg-red-500/15 hover:bg-red-500/25 border border-red-500/20 text-red-400 font-bold text-xs rounded-xl transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setActiveChatFriend({
+                        _id: searchedUser._id,
+                        username: searchedUser.username,
+                        avatar: searchedUser.avatar,
+                        rating: searchedUser.rating,
+                        lastSeen: searchedUser.lastSeen || new Date().toISOString(),
+                      });
+                      setSearchedUser(null);
+                    }}
+                    className="w-full py-3 bg-white/[0.05] hover:bg-[#81b64c]/10 border border-white/[0.08] hover:border-[#81b64c]/30 text-[#a0a09a] hover:text-[#81b64c] font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <MessageSquare className="h-4 w-4" /> Message
+                  </button>
                 </div>
               )}
 
@@ -677,17 +815,49 @@ export default function SocialPanel({ friends, friendRequests, currentUserId }: 
                       Decline
                     </button>
                   </div>
+                  <button
+                    onClick={() => {
+                      setActiveChatFriend({
+                        _id: searchedUser._id,
+                        username: searchedUser.username,
+                        avatar: searchedUser.avatar,
+                        rating: searchedUser.rating,
+                        lastSeen: searchedUser.lastSeen || new Date().toISOString(),
+                      });
+                      setSearchedUser(null);
+                    }}
+                    className="w-full py-3 bg-white/[0.05] hover:bg-[#81b64c]/10 border border-white/[0.08] hover:border-[#81b64c]/30 text-[#a0a09a] hover:text-[#81b64c] font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <MessageSquare className="h-4 w-4" /> Message
+                  </button>
                 </div>
               )}
 
               {searchedUser.relationship === 'none' && (
-                <button
-                  onClick={() => handleSendRequestInModal(searchedUser.username)}
-                  className="w-full py-3 bg-[#81b64c] hover:bg-[#90c957] text-[#0f0e0c] font-black text-xs rounded-xl transition-all flex items-center justify-center gap-2"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Send Friend Request
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleSendRequestInModal(searchedUser.username)}
+                    className="flex-grow py-3 bg-[#81b64c] hover:bg-[#90c957] text-[#0f0e0c] font-black text-xs rounded-xl transition-all flex items-center justify-center gap-2"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Add Friend
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveChatFriend({
+                        _id: searchedUser._id,
+                        username: searchedUser.username,
+                        avatar: searchedUser.avatar,
+                        rating: searchedUser.rating,
+                        lastSeen: searchedUser.lastSeen || new Date().toISOString(),
+                      });
+                      setSearchedUser(null);
+                    }}
+                    className="px-4 py-3 bg-white/[0.05] hover:bg-[#81b64c]/10 border border-white/[0.08] hover:border-[#81b64c]/30 text-[#a0a09a] hover:text-[#81b64c] font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <MessageSquare className="h-4 w-4" /> Message
+                  </button>
+                </div>
               )}
             </div>
 
